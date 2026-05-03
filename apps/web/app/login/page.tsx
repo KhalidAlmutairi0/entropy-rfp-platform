@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -20,7 +20,6 @@ type LoginForm = z.infer<typeof loginSchema>;
 
 export default function LoginPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [lang, setLang] = useState<"ar" | "en">("ar");
   const [loading, setLoading] = useState(false);
   const [ssoLoading, setSSOLoading] = useState(false);
@@ -39,11 +38,12 @@ export default function LoginPage() {
 
   // Fix B-F2 + B-F11: Handle SSO callback using exchange code; remove lang from deps
   useEffect(() => {
-    const redirect = searchParams.get("redirect") || "/dashboard";
-    const ssoError = searchParams.get("sso_error");
+    const params = new URLSearchParams(window.location.search);
+    const redirect = params.get("redirect") || "/dashboard";
+    const ssoError = params.get("sso_error");
 
     // Primary path: one-time exchange code (Redis-backed, never a real JWT in URL)
-    const ssoCode = searchParams.get("sso_code");
+    const ssoCode = params.get("sso_code");
     if (ssoCode) {
       setSSOLoading(true);
       authApi.exchangeSsoCode(ssoCode)
@@ -117,7 +117,8 @@ export default function LoginPage() {
   const handleSSO = () => {
     setSSOLoading(true);
     const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    const redirectPath = searchParams.get("redirect") || "/dashboard";
+    const params = new URLSearchParams(window.location.search);
+    const redirectPath = params.get("redirect") || "/dashboard";
     window.location.href = `${apiBase}/auth/sso-start?redirect_path=${encodeURIComponent(redirectPath)}`;
   };
 
