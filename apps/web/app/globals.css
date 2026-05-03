@@ -1,0 +1,137 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── CSS Custom Properties (Light mode) ───────────────────────────────────── */
+:root {
+  --color-bg:           #FFFFFF;
+  --color-surface:      #F8FAFC;
+  --color-surface-alt:  #F1F5F9;
+  --color-text:         #334155;
+  --color-text-muted:   #64748B;
+  --color-border:       #E2E8F0;
+  --color-primary:      #486581;
+  --color-primary-hover:#334E68;
+  --color-success:      #10B981;
+  --color-warning:      #F59E0B;
+  --color-danger:       #EF4444;
+
+  --topbar-height: 56px;
+  --sidebar-width: 240px;
+  --sidebar-collapsed: 64px;
+}
+
+/* ── Dark mode ────────────────────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --color-bg:           #0F172A;
+  --color-surface:      #1E293B;
+  --color-surface-alt:  #334155;
+  --color-text:         #F1F5F9;
+  --color-text-muted:   #94A3B8;
+  --color-border:       #334155;
+  --color-primary:      #829AB1;
+  --color-primary-hover:#9FB3C8;
+}
+
+/* ── Base styles ─────────────────────────────────────────────────────────── */
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/* RTL support — Arabic */
+[dir="rtl"] body {
+  line-height: 22px; /* +10% for Arabic glyphs */
+}
+
+/* ── Focus rings ─────────────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* ── Scrollbar ────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--color-border);
+  border-radius: 3px;
+}
+
+/* ── Tabular numbers for scores and IDs ──────────────────────────────────── */
+.tabular-nums {
+  font-feature-settings: "tnum";
+}
+
+/* ── Streaming text animation ────────────────────────────────────────────── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.streaming-chunk {
+  animation: fadeInUp 250ms ease-out;
+}
+
+/* ── Skeleton pulse ──────────────────────────────────────────────────────── */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+.skeleton {
+  animation: pulse 2000ms ease-in-out infinite;
+  background-color: var(--color-surface-alt);
+  border-radius: 4px;
+}
+
+/* ── Reduced motion ──────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Arabic typography adjustments ──────────────────────────────────────── */
+:lang(ar) {
+  font-family: "IBM Plex Sans Arabic", "Noto Sans Arabic", "Tajawal", sans-serif;
+  letter-spacing: 0 !important; /* Never letter-space Arabic */
+}
+
+/* ── TipTap editor ──────────────────────────────────────────────────────── */
+.ProseMirror {
+  outline: none;
+  min-height: 200px;
+}
+
+.ProseMirror p.is-editor-empty:first-child::before {
+  color: var(--color-text-muted);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* Ungrounded claim highlight */
+.ungrounded-claim {
+  background-color: #FEFCE8;
+  border-bottom: 2px solid #F59E0B;
+  cursor: help;
+}

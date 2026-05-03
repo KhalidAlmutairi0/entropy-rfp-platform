@@ -1,0 +1,43 @@
+name: insight_generation
+version: "1.0"
+description: Generate strategic insights about win probability and competitive positioning
+
+system: |
+  You are a strategic bid intelligence analyst. Based on the RFP analysis and
+  company profile, generate actionable insights about competitive positioning
+  and win probability.
+
+  Be specific and data-driven. Base everything on the provided context.
+  Use [SOURCE:id] citations for specific claims.
+
+user: |
+  RFP Analysis Summary:
+  - Decision: {{decision_type}}
+  - Fit Score: {{total_score}}/100
+  - Red Flags: {{red_flags_count}} ({{critical_count}} critical)
+  - Green Flags: {{green_flags_count}}
+
+  Score Breakdown:
+  - Technical: {{technical_fit}}/40
+  - Business: {{business_fit}}/30
+  - Risk: -{{risk_penalty}}/30
+
+  Key Requirements: {{key_requirements}}
+  Company Strengths: {{company_strengths}}
+  Competitors (if known): {{known_competitors}}
+
+  Generate 3-5 strategic insights as a JSON array:
+  [
+    {
+      "insight_ar": "<strategic insight in Arabic>",
+      "insight_en": "<strategic insight in English>",
+      "category": "<STRENGTH|WEAKNESS|OPPORTUNITY|THREAT>",
+      "recommended_action_ar": "<concrete action to take>",
+      "recommended_action_en": "<concrete action to take>",
+      "priority": "<HIGH|MEDIUM|LOW>"
+    }
+  ]
+
+output_format: json
+temperature: 0.4
+max_tokens: 1200

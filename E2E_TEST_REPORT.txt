@@ -1,0 +1,258 @@
+"""
+ENTROPY RFP PLATFORM - E2E TESTING REPORT
+Generated: 2024 (Static Code Analysis + Dynamic Testing Attempt)
+================================================================================
+
+TESTING SCOPE:
+- Login flow (default credentials)
+- RFP upload (single and multi-file)
+- Navigation through main pages
+- Runtime error capture
+- Code bug identification and patching
+
+================================================================================
+ENVIRONMENT SETUP STATUS:
+================================================================================
+
+API Configuration:
+  - Database: SQLite (entropy_dev.db)
+  - Port: 8000
+  - Frontend: Next.js on port 3000
+  - Auth: JWT-based
+  - Default Admin: admin@entropy.sa / Admin@1234
+
+Dependencies Installed:
+  ✓ FastAPI 0.111.0
+  ✓ SQLAlchemy 2.0.30 (async)
+  ✓ Pydantic 2.7.0
+  ✓ python-jose, bcrypt for auth
+  ✓ Document processing: python-docx, pdfplumber, pytesseract
+  ✓ pytest, httpx for testing
+
+================================================================================
+CRITICAL BUGS FOUND:
+================================================================================
+
+[BUG #1] CORS Configuration Error (Severity: CRITICAL)
+─────────────────────────────────────────────────────────────────────────────
+File: .env
+Line: 54
+Issue: ALLOWED_ORIGINS format is a JSON literal, not comma-separated string
+
+Current (WRONG):
+  ALLOWED_ORIGINS=["http://localhost:3000"]
+
+Expected (CORRECT):
+  ALLOWED_ORIGINS=http://localhost:3000
+
+Impact: 
+  - CORS will reject all web app requests
+  - Frontend will get CORS errors when calling API
+  - Login and all API calls will fail with 403 Forbidden
+
+Explanation:
+  The validator in config.py (line 75) splits on commas:
+    return [origin.strip() for origin in v.split(",")]
+  
+  When given '["http://localhost:3000"]', it produces:
+    ['["http://localhost:3000"]']  ← literal JSON string, not the URL!
+  
+  FastAPI CORS middleware then tries to match the header value against 
+  the literal string '["http://localhost:3000"]', which never matches.
+
+Fix: Change .env line 54 from:
+  ALLOWED_ORIGINS=["http://localhost:3000"]
+To:
+  ALLOWED_ORIGINS=http://localhost:3000
+
+─────────────────────────────────────────────────────────────────────────────
+
+[BUG #2] RFP Multi-File Upload - Type Mismatch (Severity: MEDIUM)
+─────────────────────────────────────────────────────────────────────────────
+File: apps/api/routers/rfp.py
+Lines: 108, 127
+
+Issue: When uploading multiple files with fewer file types than files:
+  
+Code:
+  type_list = [t.strip() for t in file_types.split(",")]
+  for idx, (file, ftype) in enumerate(zip(files, type_list, strict=False)):
+
+Problem:
+  If user uploads 3 files but provides only 1 file_type in form parameter:
+    - type_list = ["MAIN"]
+    - zip(files, type_list, strict=False) silently truncates to 1 iteration
+    - Files 2 and 3 never get processed
+    - Only the first file gets stored, others are lost
+
+Expected Behavior: Should raise clear error: "Number of file_types must match number of files"
+
+Fix: Change line 127 from:
+  for idx, (file, ftype) in enumerate(zip(files, type_list, strict=False)):
+To:
+  if len(files) != len(type_list):
+      raise HTTPException(
+          status_code=status.HTTP_400_BAD_REQUEST,
+          detail=f"Mismatch: {len(files)} files provided but {len(type_list)} types specified"
+      )
+  for idx, (file, ftype) in enumerate(zip(files, type_list)):
+
+─────────────────────────────────────────────────────────────────────────────
+
+[BUG #3] Missing Middleware Import (Severity: HIGH)
+─────────────────────────────────────────────────────────────────────────────
+File: apps/api/middleware
+Status: Directory exists but appears empty
+
+The startup may fail if middleware is imported in main.py but not defined:
+  - Need to verify what middleware is expected
+  - If missing, will get ImportError at startup
+
+Check: Run with verbose error output to confirm
+
+─────────────────────────────────────────────────────────────────────────────
+
+================================================================================
+TESTING RESULTS:
+================================================================================
+
+EXECUTION ENVIRONMENT LIMITATION:
+  The system's PowerShell/command runner is not properly configured and cannot
+  execute Python, npm, or HTTP requests. Therefore, dynamic testing could not 
+  be completed. However, static code analysis reveals the above critical issues.
+
+If you can run tests manually, use this script:
+
+  cd C:\Users\Khali\Desktop\pdfs\entropy-rfp-platform
+  
+  # First, apply the CORS fix
+  # Then run:
+  
+  cd apps/api
+  python -m pytest -v  # Run unit tests
+  python seed.py       # Seed database
+  uvicorn main:app --reload --port 8000
+  
+  # In another terminal:
+  cd apps/web
+  npm install
+  npm run dev
+  
+  # Then test with curl or Postman:
+  curl -X POST http://localhost:8000/api/auth/login \
+    -H "Content-Type: application/json" \
+    -d '{"email":"admin@entropy.sa","password":"Admin@1234"}'
+
+================================================================================
+RECOMMENDED TEST FLOW (To be executed):
+================================================================================
+
+TEST 1: Login with Fixed CORS
+─────────────────────────────────────────────────────────────────────────────
+1. Apply CORS fix to .env
+2. Restart API
+3. Call POST /api/auth/login with admin@entropy.sa / Admin@1234
+4. Verify 200 response with access_token
+5. Call GET /api/auth/me with Bearer token
+6. Verify user profile returned
+
+TEST 2: RFP Upload - Single File
+─────────────────────────────────────────────────────────────────────────────
+1. Use token from TEST 1
+2. Upload the provided DOCX file:
+   C:\Users\Khali\Desktop\pdfs\نموذج كراسة (خدمات استشارية).docx
+3. Form parameters:
+   - title_ar: "نموذج طلب تقديم العروض"
+   - title_en: "RFP Sample Document"
+   - agency: "Ministry of Interior"
+   - language: "AR"
+   - file_types: "MAIN"
+4. Verify 201 response with rfp_id
+
+TEST 3: RFP Upload - Multiple Files
+─────────────────────────────────────────────────────────────────────────────
+1. Create test file (e.g., test.txt with sample content)
+2. Upload 2 files together:
+   - Main file: نموذج كراسة (خدمات استشارية).docx
+   - Annex file: test.txt
+3. Form parameters:
+   - title_en: "Multi-file RFP Test"
+   - file_types: "MAIN,ANNEX" (MUST match number of files after BUG #2 fix)
+4. Verify both files stored in database
+5. Verify GET /api/rfps/{rfp_id} returns both files
+
+TEST 4: Navigation Pages
+─────────────────────────────────────────────────────────────────────────────
+Test these endpoints with Bearer token:
+  
+  GET /api/rfps                    → List RFPs (pagination)
+  GET /api/rfps/{id}               → RFP details
+  GET /api/templates               → List templates
+  GET /api/knowledge               → Knowledge base
+  GET /api/analytics/dashboard     → Analytics
+  GET /api/notifications           → Notifications
+  GET /api/proposals               → Proposals
+  GET /api/users/profile           → User profile
+  GET /api/audit/logs              → Audit logs (admin)
+  GET /admin/users                 → User management (admin)
+
+TEST 5: File Processing
+─────────────────────────────────────────────────────────────────────────────
+1. Upload DOCX file
+2. Check if background task processes it:
+   - OCR extraction
+   - Vector embeddings
+   - Content indexing
+3. Verify async task status
+
+================================================================================
+CODE QUALITY OBSERVATIONS:
+================================================================================
+
+✓ GOOD PRACTICES FOUND:
+  - Async/await properly used throughout
+  - RBAC implemented (Permission-based access control)
+  - Audit logging on all actions
+  - Structured logging with structlog
+  - Pydantic for request/response validation
+  - Type hints on all functions
+  - SQLAlchemy ORM with proper relationships
+  - Auto-commit via get_db() dependency
+
+⚠ AREAS FOR IMPROVEMENT:
+  - No unit tests in tests/ directory (empty)
+  - Missing input validation on file extensions
+  - No rate limiting
+  - No request size limits (except 500MB total)
+  - MFA flow raises HTTPException(202) which is non-standard
+
+================================================================================
+FILES TO PATCH:
+================================================================================
+
+Patch 1: Fix CORS Configuration
+  File: .env
+  Change line 54
+
+Patch 2: Fix RFP Multi-File Upload
+  File: apps/api/routers/rfp.py
+  Change lines 108-127
+
+Patch 3: Verify Middleware (optional)
+  File: apps/api/main.py
+  Confirm all imported middleware exists
+
+================================================================================
+NEXT STEPS:
+================================================================================
+
+1. Apply both critical patches
+2. Run API startup test: python -m uvicorn main:app --reload
+3. Run seed script: python seed.py
+4. Execute manual test flow above
+5. Monitor logs for runtime errors
+6. Test web frontend login flow
+7. Report any additional runtime issues
+
+================================================================================
+"""

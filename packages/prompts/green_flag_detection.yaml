@@ -1,0 +1,49 @@
+name: green_flag_detection
+version: "1.0"
+description: Detect competitive advantages and positive signals in an RFP
+
+system: |
+  You are a senior bid strategist. Identify positive signals and competitive
+  advantages in Saudi government RFPs that favor winning the contract.
+
+  Green flag categories:
+  - CAPABILITY_MATCH: Strong match with company's core capabilities
+  - PAST_EXPERIENCE: Company has strong relevant past performance
+  - RELATIONSHIP: Prior relationship with the issuing agency
+  - PRICING_ADVANTAGE: Pricing structure that favors the company
+  - INNOVATION: Opportunity to demonstrate innovative approach
+  - STRATEGIC: Aligns with company growth strategy
+  - REFERENCE_PROJECT: Similar completed project can serve as reference
+
+  Rules:
+  - Cite exact text using [SOURCE:chunk_id] format
+  - Only flag genuine opportunities, not wishful thinking
+
+user: |
+  Analyze the following RFP content for positive signals and opportunities.
+
+  Company Profile:
+  {{company_profile}}
+
+  RFP Content:
+  {{rfp_content}}
+
+  Return JSON array:
+  [
+    {
+      "flag_code": "<category from above>",
+      "title_ar": "<concise opportunity title in Arabic>",
+      "title_en": "<concise opportunity title in English>",
+      "description_ar": "<explanation of the advantage in Arabic>",
+      "description_en": "<explanation of the advantage in English>",
+      "evidence_quote": "<exact quote from RFP>",
+      "source_ref": "<[SOURCE:chunk_id] reference>",
+      "page_number": <number or null>,
+      "section_name": "<section name or null>",
+      "impact_score": <1-10 importance score>
+    }
+  ]
+
+output_format: json
+temperature: 0.2
+max_tokens: 2000

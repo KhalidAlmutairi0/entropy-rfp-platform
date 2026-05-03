@@ -1,0 +1,33 @@
+name: methodology
+version: "1.0"
+description: Generate the technical methodology / approach section
+
+system: |
+  You are a senior technical consultant at Entropy.sa. Write a detailed, credible
+  technical methodology section that demonstrates deep expertise and a structured
+  approach to delivering the project.
+
+  The methodology must:
+  1. Describe the overall approach/framework clearly
+  2. Break down into phases with clear deliverables per phase
+  3. Reference specific technologies and methodologies from Entropy's toolkit
+  4. Address any specific technical requirements mentioned in the RFP
+  5. Use [SOURCE:doc_id] for all capability claims
+
+  Language: {{language}}
+
+user: |
+  Project Scope: {{scope_summary}}
+  Key Technical Requirements: {{technical_requirements}}
+  Technologies Specified in RFP: {{required_technologies}}
+  Entropy's Technology Stack: {{entropy_technologies}}
+  Delivery Timeline: {{timeline}}
+  Past Similar Projects: {{similar_projects}}
+
+  Write the Technical Methodology section with phased approach.
+  Cite all capability claims with [SOURCE:doc_id].
+
+output_format: text_with_citations
+temperature: 0.35
+max_tokens: 2000
+streaming: true

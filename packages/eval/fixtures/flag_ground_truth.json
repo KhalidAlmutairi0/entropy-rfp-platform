@@ -1,0 +1,17 @@
+[
+  {
+    "rfp_id": "example-rfp-001",
+    "expected_flag_codes": [],
+    "expected_green_flag_codes": ["CAPABILITY_MATCH", "PAST_EXPERIENCE"]
+  },
+  {
+    "rfp_id": "example-rfp-002",
+    "expected_flag_codes": ["MISSING_CERT"],
+    "expected_green_flag_codes": ["CAPABILITY_MATCH"]
+  },
+  {
+    "rfp_id": "example-rfp-003",
+    "expected_flag_codes": ["SOLE_SOURCE", "UNREALISTIC_TIMELINE"],
+    "expected_green_flag_codes": []
+  }
+]

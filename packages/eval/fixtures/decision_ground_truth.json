@@ -1,0 +1,23 @@
+[
+  {
+    "rfp_id": "example-rfp-001",
+    "rfp_title": "نظام تحليل البيانات الصحية",
+    "expected_decision": "GO",
+    "expected_score_range": [75, 95],
+    "notes": "Strong data analytics match, reasonable timeline"
+  },
+  {
+    "rfp_id": "example-rfp-002",
+    "rfp_title": "منصة الأمن السيبراني",
+    "expected_decision": "REVIEW",
+    "expected_score_range": [55, 74],
+    "notes": "Missing ISO 27001 certification requirement"
+  },
+  {
+    "rfp_id": "example-rfp-003",
+    "rfp_title": "تطوير تطبيق هاتف",
+    "expected_decision": "NO_GO",
+    "expected_score_range": [0, 49],
+    "notes": "Mobile development not in core capabilities"
+  }
+]

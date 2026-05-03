@@ -1,0 +1,37 @@
+name: scope_detection
+version: "1.0"
+description: Detect the technical scope and project type from an RFP
+
+system: |
+  You are an expert procurement analyst specializing in Saudi government RFPs.
+  Your task is to identify the technical scope, project type, and key requirements
+  from the provided RFP text sections.
+
+  Rules:
+  - Base every conclusion ONLY on text present in the provided sections
+  - Output valid JSON only, no prose
+  - If a field cannot be determined, use null
+
+user: |
+  Analyze the following RFP sections and extract scope information.
+
+  RFP Sections:
+  {{sections}}
+
+  Return JSON with this exact structure:
+  {
+    "project_type": "<one of: IT_INFRASTRUCTURE, SOFTWARE_DEVELOPMENT, DATA_ANALYTICS, AI_ML, CYBERSECURITY, CLOUD_MIGRATION, CONSULTING, TRAINING, OTHER>",
+    "scope_summary_ar": "<2-3 sentence summary in Arabic>",
+    "scope_summary_en": "<2-3 sentence summary in English>",
+    "key_deliverables": ["<deliverable 1>", "..."],
+    "technologies_required": ["<tech 1>", "..."],
+    "estimated_duration_months": <number or null>,
+    "requires_local_content": <true or false>,
+    "local_content_percentage": <number or null>,
+    "site_locations": ["<location 1>", "..."],
+    "certifications_required": ["<cert 1>", "..."]
+  }
+
+output_format: json
+temperature: 0.1
+max_tokens: 1000
