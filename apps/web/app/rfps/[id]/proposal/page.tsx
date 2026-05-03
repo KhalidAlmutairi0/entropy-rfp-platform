@@ -278,8 +278,6 @@ export default function ProposalPage({ params }: Props) {
                   </div>
                 </div>
               ) : (
-                {/* Fix B-F6: key forces React to unmount+remount on section change,
-                    resetting useState(content) so a different section's text never leaks in */}
                 <SectionEditor
                   key={activeSectionData.id}
                   section={activeSectionData}
