@@ -5,6 +5,8 @@ const PUBLIC_PATHS = ["/login", "/signup", "/_next", "/favicon.ico", "/api"];
 const ADMIN_PATHS = ["/admin"];
 
 function isPublic(pathname: string): boolean {
+  // Always bypass middleware for static assets (e.g. .css/.js/.png/.svg/.woff2)
+  if (/\.[^/]+$/.test(pathname)) return true;
   return PUBLIC_PATHS.some((p) => pathname.startsWith(p));
 }
 
@@ -53,6 +55,6 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico).*)",
+    "/((?!api|_next/static|_next/image|_next/data|favicon.ico|.*\\..*).*)",
   ],
 };
