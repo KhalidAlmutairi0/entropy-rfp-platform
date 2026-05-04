@@ -1,14 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jwtDecode } from "jwt-decode";
 
-const PUBLIC_PATHS = ["/login", "/signup", "/_next", "/favicon.ico", "/api"];
 const ADMIN_PATHS = ["/admin"];
-
-function isPublic(pathname: string): boolean {
-  // Always bypass middleware for static assets (e.g. .css/.js/.png/.svg/.woff2)
-  if (/\.[^/]+$/.test(pathname)) return true;
-  return PUBLIC_PATHS.some((p) => pathname.startsWith(p));
-}
+const PROTECTED_PATHS = [
+  "/dashboard",
+  "/admin",
+  "/analytics",
+  "/knowledge",
+  "/notifications",
+  "/proposals",
+  "/rfps",
+  "/settings",
+  "/upload",
+  "/templates",
+];
 
 function isTokenValid(token: string): boolean {
   try {
@@ -31,7 +36,9 @@ function getRoleFromToken(token: string): string | null {
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (isPublic(pathname)) return NextResponse.next();
+  if (!PROTECTED_PATHS.some((p) => pathname.startsWith(p))) {
+    return NextResponse.next();
+  }
 
   // Check for JWT in cookie (set at login)
   const token = request.cookies.get("entropy_token")?.value;
@@ -55,6 +62,15 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!api|_next/static|_next/image|_next/data|favicon.ico|.*\\..*).*)",
+    "/dashboard/:path*",
+    "/admin/:path*",
+    "/analytics/:path*",
+    "/knowledge/:path*",
+    "/notifications/:path*",
+    "/proposals/:path*",
+    "/rfps/:path*",
+    "/settings/:path*",
+    "/upload/:path*",
+    "/templates/:path*",
   ],
 };
