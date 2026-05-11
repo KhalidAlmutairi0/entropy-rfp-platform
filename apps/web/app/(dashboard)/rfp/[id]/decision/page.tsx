@@ -117,11 +117,37 @@ export default function DecisionPage() {
   const DecisionIcon = decisionIcon
   const overallScore = Math.round(decision.totalScore)
 
+  // Normalize each dimension to 0–100 for display
+  const techPct    = Math.round((decision.technicalFit  / 40) * 100)
+  const bizPct     = Math.round((decision.businessFit   / 30) * 100)
+  const safetyPct  = Math.round(((30 - decision.riskPenalty) / 30) * 100)
+  const confPct    = Math.round(decision.confidence * 100)
+
   const factors = [
-    { category: 'Technical Fit', score: Math.round(decision.technicalFit), status: decision.technicalFit >= 70 ? 'positive' : decision.technicalFit >= 50 ? 'neutral' : 'negative' },
-    { category: 'Business Fit', score: Math.round(decision.businessFit), status: decision.businessFit >= 70 ? 'positive' : decision.businessFit >= 50 ? 'neutral' : 'negative' },
-    { category: 'Risk Penalty', score: Math.round(100 - decision.riskPenalty), status: decision.riskPenalty <= 20 ? 'positive' : decision.riskPenalty <= 40 ? 'neutral' : 'negative' },
-    { category: 'Confidence', score: Math.round(decision.confidence * 100), status: decision.confidence >= 0.7 ? 'positive' : decision.confidence >= 0.5 ? 'neutral' : 'negative' },
+    {
+      category: 'Technical Fit',
+      label: `${Math.round(decision.technicalFit)} / 40 pts`,
+      score: techPct,
+      status: techPct >= 65 ? 'positive' : techPct >= 40 ? 'neutral' : 'negative',
+    },
+    {
+      category: 'Business Fit',
+      label: `${Math.round(decision.businessFit)} / 30 pts`,
+      score: bizPct,
+      status: bizPct >= 65 ? 'positive' : bizPct >= 40 ? 'neutral' : 'negative',
+    },
+    {
+      category: 'Safety Score',
+      label: decision.riskPenalty === 0 ? 'No risks detected' : `-${Math.round(decision.riskPenalty)} pts deducted`,
+      score: safetyPct,
+      status: safetyPct >= 75 ? 'positive' : safetyPct >= 50 ? 'neutral' : 'negative',
+    },
+    {
+      category: 'Confidence',
+      label: `${confPct}% certainty`,
+      score: confPct,
+      status: confPct >= 70 ? 'positive' : confPct >= 50 ? 'neutral' : 'negative',
+    },
   ]
 
   return (
@@ -215,7 +241,10 @@ export default function DecisionPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-1">
-                      <h4 className="font-medium">{factor.category}</h4>
+                      <div>
+                        <h4 className="font-medium">{factor.category}</h4>
+                        <p className="text-xs text-muted-foreground">{factor.label}</p>
+                      </div>
                       <span className="text-sm font-bold">{factor.score}%</span>
                     </div>
                     <Progress value={factor.score} className="mt-2 h-1.5" />
