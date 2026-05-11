@@ -58,6 +58,25 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             if settings.database_url.startswith("sqlite"):
                 await conn.execute(__import__("sqlalchemy").text("PRAGMA journal_mode=WAL"))
                 await conn.execute(__import__("sqlalchemy").text("PRAGMA busy_timeout=30000"))
+
+    # Reset any RFPs left in ANALYZING state from a previous server run.
+    # Background tasks are killed on shutdown, leaving these permanently stuck
+    # unless we reset them so users can re-trigger analysis.
+    try:
+        from sqlalchemy import update
+        from models.rfp import RFP
+        from core.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(RFP)
+                .where(RFP.status == "ANALYZING")
+                .values(status="UPLOADED")
+            )
+            await db.commit()
+            logger.info("Reset stuck ANALYZING RFPs to UPLOADED on startup")
+    except Exception as e:
+        logger.warning("Could not reset stuck RFPs on startup", error=str(e))
+
     yield
     logger.info("Shutting down Entropy RFP Platform API")
     await engine.dispose()

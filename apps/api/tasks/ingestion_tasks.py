@@ -546,7 +546,6 @@ async def _process_rfp_async(rfp_id: str, task) -> dict:
             rfp.status = "ACTION_REQUIRED"
             await db.commit()
             await publish_event(f"rfp:processing:{rfp_id}", {"step": "error", "status": "failed", "message": str(exc)})
-            raise
 
 
 # ── Text Extraction ────────────────────────────────────────────────────────────

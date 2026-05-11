@@ -304,7 +304,16 @@ async def trigger_analysis(
     # Run analysis as a background async task in the same event loop.
     # This avoids thread/event-loop mismatch issues with SQLAlchemy async engine.
     from tasks.ingestion_tasks import _process_rfp_async
-    asyncio.create_task(_process_rfp_async(str(rfp_id), None))
+    import structlog as _log
+    _logger = _log.get_logger()
+
+    async def _run_and_log():
+        try:
+            await _process_rfp_async(str(rfp_id), None)
+        except Exception as exc:
+            _logger.error("Background analysis task raised", rfp_id=str(rfp_id), error=str(exc))
+
+    asyncio.create_task(_run_and_log())
 
     return {"task_id": task_id, "status": "queued"}
 
@@ -312,9 +321,45 @@ async def trigger_analysis(
 @router.get("/{rfp_id}/status/stream")
 async def stream_processing_status(
     rfp_id: uuid.UUID,
-    current_user: Annotated[User, Depends(require_permission(Permission.VIEW_RFP))],
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    token: str | None = None,
 ) -> StreamingResponse:
-    """Server-Sent Events stream for live processing updates."""
+    """Server-Sent Events stream for live processing updates.
+
+    EventSource cannot send custom headers, so the JWT token is accepted
+    as a ?token= query parameter in addition to the standard Authorization header.
+    """
+    from core.security import decode_token
+    from models.user import User as UserModel
+    from sqlalchemy import select as _select
+
+    # Resolve token: prefer Authorization header, fall back to ?token= query param
+    raw_token: str | None = None
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        raw_token = auth_header[7:]
+    elif token:
+        raw_token = token
+
+    current_user = None
+    if raw_token:
+        try:
+            payload = decode_token(raw_token)
+            user_id = payload.get("sub")
+            if user_id:
+                result = await db.execute(
+                    _select(UserModel).where(UserModel.id == user_id, UserModel.is_active == True)  # noqa: E712
+                )
+                current_user = result.scalar_one_or_none()
+        except Exception:
+            pass
+
+    if current_user is None:
+        async def auth_error_stream() -> AsyncGenerator[str, None]:
+            yield 'data: {"step":"error","status":"unavailable","message":"Authentication required — falling back to polling."}\n\n'
+        return StreamingResponse(auth_error_stream(), media_type="text/event-stream")
+
     redis = await get_redis()
 
     # Fix Bug #7: Redis unavailable — return a graceful fallback instead of crashing
