@@ -1,5 +1,4 @@
 {
-  "rootDirectory": "apps/web",
   "framework": "nextjs",
   "buildCommand": "next build",
   "installCommand": "npm install",
