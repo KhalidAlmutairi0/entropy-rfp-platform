@@ -48,6 +48,7 @@ export default function ProposalPage() {
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null)
   const [content, setContent] = useState('')
@@ -75,18 +76,38 @@ export default function ProposalPage() {
   const handleCreateProposal = async () => {
     setCreating(true)
     try {
-      const p = await rfps.createProposal(rfpId, 'AI')
-      setProposal(p)
+      await rfps.createProposal(rfpId, 'AI')
       setNotFound(false)
-      if (p.sections.length > 0) {
-        const first = p.sections[0]
-        setSelectedSectionId(first.id)
-        setContent(first.contentAr || first.contentEn || '')
+      setCreating(false)
+      // Poll until sections with content are ready (background task)
+      setGenerating(true)
+      const deadline = Date.now() + 180_000 // 3-min timeout
+      let ready: Proposal | null = null
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 3000))
+        try {
+          const latest = await rfps.getProposal(rfpId)
+          const hasContent = latest.sections.some(
+            s => !s.isLocked && (s.contentAr || s.contentEn || '').trim().length > 10
+          )
+          if (hasContent) { ready = latest; break }
+        } catch { /* keep polling */ }
+      }
+      if (ready) {
+        setProposal(ready)
+        const first = ready.sections.find(s => !s.isLocked) ?? ready.sections[0]
+        if (first) {
+          setSelectedSectionId(first.id)
+          setContent(first.contentAr || first.contentEn || '')
+        }
+      } else {
+        setError('Generation timed out. Please refresh the page in a moment.')
       }
     } catch (err: unknown) {
+      setCreating(false)
       setError(err instanceof Error ? err.message : 'Failed to create proposal')
     } finally {
-      setCreating(false)
+      setGenerating(false)
     }
   }
 
@@ -115,6 +136,20 @@ export default function ProposalPage() {
     )
   }
 
+  if (generating) {
+    return (
+      <div className="p-6 max-w-md mx-auto text-center space-y-4 mt-12">
+        <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
+          <Loader2 className="h-8 w-8 text-primary animate-spin" />
+        </div>
+        <h2 className="text-xl font-semibold">Generating Proposal…</h2>
+        <p className="text-muted-foreground">
+          The AI is writing each section. This usually takes 30–90 seconds.
+        </p>
+      </div>
+    )
+  }
+
   if (notFound) {
     return (
       <div className="p-6 max-w-md mx-auto text-center space-y-4 mt-12">
@@ -126,7 +161,7 @@ export default function ProposalPage() {
           A proposal has not been generated for this RFP yet.
         </p>
         <Button onClick={handleCreateProposal} disabled={creating}>
-          {creating ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Generating...</> : <><Sparkles className="h-4 w-4 mr-2" />Generate Proposal</>}
+          {creating ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Starting…</> : <><Sparkles className="h-4 w-4 mr-2" />Generate Proposal</>}
         </Button>
       </div>
     )
