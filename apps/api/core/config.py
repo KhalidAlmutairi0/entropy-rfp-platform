@@ -43,6 +43,8 @@ class Settings(BaseSettings):
 
     # LLM
     anthropic_api_key: str = ""
+    anthropic_foundry_api_key: str = ""
+    anthropic_foundry_base_url: str = ""   # Azure AI Foundry endpoint
     openai_api_key: str = ""
     primary_llm_model: str = "claude-opus-4-6"
     secondary_llm_model: str = "gpt-4o"
@@ -70,10 +72,21 @@ class Settings(BaseSettings):
 
     @field_validator("allowed_origins", mode="before")
     @classmethod
-    def parse_cors_origins(cls, v: str | list[str]) -> list[str]:
+    def parse_cors_origins(cls, v: str | list) -> list[str]:
+        if isinstance(v, list):
+            return [str(o).strip() for o in v]
         if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",")]
-        return v
+            v = v.strip()
+            # Handle JSON array format: ["url1","url2"]
+            if v.startswith("["):
+                import json
+                try:
+                    return [str(o).strip() for o in json.loads(v)]
+                except Exception:
+                    pass
+            # Handle comma-separated plain format: url1,url2
+            return [o.strip() for o in v.split(",") if o.strip()]
+        return [str(v)]
 
     @property
     def is_production(self) -> bool:

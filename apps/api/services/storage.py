@@ -94,16 +94,40 @@ class _MinioBackend:
         return self.client.presigned_get_object(self.bucket, path, expires=timedelta(hours=expiry_hours))
 
 
+def _minio_reachable() -> bool:
+    """Quick TCP probe — returns False immediately if MinIO port is closed."""
+    import socket
+    host = settings.minio_endpoint.split(":")[0]
+    try:
+        port = int(settings.minio_endpoint.split(":")[1])
+    except (IndexError, ValueError):
+        port = 9000
+    try:
+        with socket.create_connection((host, port), timeout=1.0):
+            return True
+    except OSError:
+        return False
+
+
 def _build_backend():
     """Return MinIO backend if reachable, otherwise local filesystem."""
+    import structlog
+    log = structlog.get_logger()
+
+    if not _minio_reachable():
+        log.warning(
+            "Storage: MinIO not reachable (TCP probe failed) — using local filesystem fallback",
+            endpoint=settings.minio_endpoint,
+            path=str(_LOCAL_ROOT),
+        )
+        return _LocalStorageBackend(_LOCAL_ROOT)
+
     try:
         backend = _MinioBackend()
-        import structlog
-        structlog.get_logger().info("Storage: connected to MinIO", endpoint=settings.minio_endpoint)
+        log.info("Storage: connected to MinIO", endpoint=settings.minio_endpoint)
         return backend
     except Exception as e:
-        import structlog
-        structlog.get_logger().warning(
+        log.warning(
             "Storage: MinIO not reachable — using local filesystem fallback",
             error=str(e),
             path=str(_LOCAL_ROOT),

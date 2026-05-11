@@ -44,4 +44,6 @@ echo  API docs: http://localhost:8000/docs
 echo  Press Ctrl+C to stop.
 echo ============================================================
 echo.
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+set PYTHONIOENCODING=utf-8
+set PYTHONUTF8=1
+python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload

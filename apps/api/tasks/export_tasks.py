@@ -15,10 +15,6 @@ def export_proposal_task(self, proposal_id: str, config: dict) -> dict:
     return asyncio.run(_export_async(proposal_id, config))
 
 
-# Public alias used by the BackgroundTasks fallback in proposal.py when Celery is unavailable
-_export_proposal_async = _export_async
-
-
 async def _export_async(proposal_id: str, config: dict) -> dict:
     from core.database import AsyncSessionLocal
     from models.proposal import Proposal
@@ -139,3 +135,6 @@ def _docx_to_pdf(docx_bytes: bytes) -> bytes:
 
     # Fallback: return DOCX bytes (PDF conversion not available)
     return docx_bytes
+
+
+# Public alias used by the BackgroundTasks fallback in proposal.py when Celery is unavailable

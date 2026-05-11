@@ -5,6 +5,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
+from schemas.common import CamelModel
+
 
 class KnowledgeDocCreate(BaseModel):
     title: str
@@ -24,28 +26,26 @@ class KnowledgeDocUpdate(BaseModel):
     outcome: str | None = None
 
 
-class KnowledgeDocResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
+class KnowledgeDocResponse(CamelModel):
     id: uuid.UUID
     title: str
     doc_type: str
     language: str
-    year: int | None
+    year: int | None = None
     tags: list[str] = []
     is_indexed: bool
-    embedding_model: str | None
-    indexed_at: datetime | None
-    last_used_at: datetime | None
+    embedding_model: str | None = None
+    indexed_at: datetime | None = None
+    last_used_at: datetime | None = None
     used_count: int
     outcome: str
     size_bytes: int
     created_at: datetime
 
 
-class KBStats(BaseModel):
+class KBStats(CamelModel):
     total: int
     indexed: int
     failed: int
-    last_sync_at: datetime | None
+    last_sync_at: datetime | None = None
     by_type: dict[str, int]

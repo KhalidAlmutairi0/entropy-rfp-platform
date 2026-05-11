@@ -57,7 +57,7 @@ async def get_kpis(
     )).scalar_one()
 
     total_decided = won + lost
-    win_rate = round(won / total_decided * 100, 1) if total_decided > 0 else 0.0
+    win_rate_decimal = won / total_decided if total_decided > 0 else 0.0
 
     # Per-status RFP counts for dashboard pipeline stats
     status_rows = (await db.execute(
@@ -67,33 +67,34 @@ async def get_kpis(
     )).all()
     status_counts = {row.status: row.cnt for row in status_rows}
 
+    total_rfps = sum(status_counts.values())
+    decision_ready = status_counts.get("DECISION_READY", 0)
+
+    # Return flat KpiData shape the frontend expects
     return {
-        "period_days": days,
-        "pipeline": {
-            "active": active_count,
-            "by_status": {k.lower(): v for k, v in status_counts.items()},
-        },
-        "decisions": {
-            "total": decisions_made,
-            "go": go_count,
-            "no_go": no_go_count,
-            "review": review_count,
-        },
-        "outcomes": {"won": won, "lost": lost, "win_rate": win_rate},
+        "totalRfps": total_rfps,
+        "activeRfps": active_count,
+        "decisionReady": decision_ready,
+        "goCount": go_count,
+        "reviewCount": review_count,
+        "noGoCount": no_go_count,
+        "winRate": win_rate_decimal,
+        "decisions": decisions_made,
     }
 
 
 @router.get("/charts/win-rate-by-project-type")
+@router.get("/charts/win-rate-by-type")
 async def win_rate_by_project_type(
     current_user: Annotated[User, Depends(require_permission(Permission.VIEW_ANALYTICS))],
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> list[dict]:
+) -> dict:
     """Win rate grouped by project type.
     NOTE: Project type tagging is not yet implemented on proposals.
     Returns an empty list until tags are added to the data model.
     """
     # Fix Bug #20: removed hardcoded fake data that was misrepresenting real business KPIs.
-    return []
+    return {"rows": []}
 
 
 @router.get("/charts/decisions-over-time")
@@ -102,7 +103,7 @@ async def decisions_over_time(
     db: Annotated[AsyncSession, Depends(get_db)],
     # Fix Bug #23: cap the days parameter
     days: int = Query(default=90, ge=1, le=730),
-) -> list[dict]:
+) -> dict:
     since = datetime.now(UTC) - timedelta(days=days)
 
     # Fix Bug #15: date_trunc is PostgreSQL-only and crashes on SQLite (dev database).
@@ -120,4 +121,17 @@ async def decisions_over_time(
         ).where(Decision.created_at >= since).group_by("week", Decision.decision_type).order_by("week")
     )
     rows = result.all()
-    return [{"week": str(row.week), "count": row.count, "decision_type": row.decision_type} for row in rows]
+    # Group by period, summing across decision types to match ChartPoint shape
+    period_map: dict[str, dict] = {}
+    for row in rows:
+        period = str(row.week)
+        if period not in period_map:
+            period_map[period] = {"period": period, "count": 0, "goCount": 0, "reviewCount": 0, "noGoCount": 0}
+        period_map[period]["count"] += row.count
+        if row.decision_type == "GO":
+            period_map[period]["goCount"] += row.count
+        elif row.decision_type == "REVIEW":
+            period_map[period]["reviewCount"] += row.count
+        elif row.decision_type == "NO_GO":
+            period_map[period]["noGoCount"] += row.count
+    return {"rows": list(period_map.values())}

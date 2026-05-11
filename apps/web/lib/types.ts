@@ -1,6 +1,8 @@
 // ── Enums ─────────────────────────────────────────────────────────────────────
 
-export type Role = "ADMIN" | "BD_MANAGER" | "PRE_SALES" | "PROPOSAL_WRITER" | "REVIEWER" | "READ_ONLY";
+export type Role = "ADMIN" | "BD_MANAGER" | "BD_PERSON" | "PRE_SALES" | "PROPOSAL_WRITER" | "REVIEWER" | "READ_ONLY";
+
+export type DeckStatus = "PENDING" | "GENERATING" | "READY" | "FAILED";
 
 export type RFPStatus =
   | "UPLOADED"
@@ -50,12 +52,15 @@ export interface RFP {
   deadline: string | null;
   estimatedValueSar: number | null;
   ownerId: string;
+  uploadedByName: string | null;  // "Checked by: Ahmad Al-Harbi" — immutable
   fileCount: number;
   totalPages: number;
   ocrConfidence: number | null;
+  deckStatus: DeckStatus | null;
   createdAt: string;
   updatedAt: string;
   fitScore?: number | null;
+  decisionType?: string | null;
   files?: RFPFile[];
 }
 

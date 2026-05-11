@@ -357,6 +357,13 @@ async def _process_rfp_async(rfp_id: str, task) -> dict:
                 if points:
                     await vector_store.upsert_points("rfp_chunks", points)
             flags_data = await _detect_flags(sections, entities)
+
+            # Claude deep analysis — enriches entity extraction and flag detection
+            await publish_step("flag_analysis", "running", "Running Claude deep analysis…")
+            llm_result = await _llm_analyze(all_text)
+            if llm_result:
+                entities, flags_data = _merge_llm_results(entities, flags_data, llm_result)
+
             await publish_step("flag_analysis", "done", f"{len(flags_data['red'])} red, {len(flags_data['green'])} green flags", duration_ms=int((time.time() - t) * 1000))
 
             # Step 8: Capability matching
@@ -383,20 +390,102 @@ async def _process_rfp_async(rfp_id: str, task) -> dict:
 
             decision_type = apply_decision_logic(total, temp_flags)
 
-            # Build bilingual explanation
+            # Build detailed bilingual explanation
             matched_caps = capability_result.get("matched", [])
-            cap_display = ", ".join(matched_caps[:3]) if matched_caps else "general data & AI"
+
+            # Cap labels for display (human-readable)
+            CAP_LABELS = {
+                "arabic_nlp": "Arabic NLP",
+                "data_engineering": "Data Engineering",
+                "data_platform": "Data Platform",
+                "data_management": "Data Management / NDMO",
+                "generative_ai": "Generative AI / LLM",
+                "agentic_ai": "Agentic AI",
+                "computer_vision": "Computer Vision",
+                "speech_recognition": "Speech Recognition",
+                "time_series_forecasting": "Forecasting / Time-Series",
+                "machine_learning": "Machine Learning / MLOps",
+                "document_intelligence": "Document Intelligence",
+                "analytics_bi": "Analytics & BI",
+            }
+            cap_labels = [CAP_LABELS.get(c, c) for c in matched_caps]
+            cap_display = ", ".join(cap_labels) if cap_labels else "No direct capability keywords found"
+
+            # Score breakdown
+            tech_score = scores["technical"]
+            biz_score = scores["business"]
+            risk_score = scores["risk"]
+
+            # Agency / value / deadline context
+            agency_name = entities.get("issuing_agency", rfp.agency or "")
+            value_sar = entities.get("estimated_value_sar", 0)
+            value_str = f"SAR {value_sar:,.0f}" if value_sar else (f"SAR {rfp.estimated_value_sar:,.0f}" if rfp.estimated_value_sar else "Not specified")
+            deadline_str = rfp.deadline.strftime("%Y-%m-%d") if rfp.deadline else "Not specified"
+            duration = entities.get("duration_months", 0)
+            duration_str = f"{duration} month(s)" if duration else "Not specified"
+
+            # Decision rationale
+            red_list = flags_data["red"]
+            green_list = flags_data["green"]
+            critical_flags = [f for f in red_list if f.get("severity") == "CRITICAL"]
+            major_flags = [f for f in red_list if f.get("severity") == "MAJOR"]
+
+            if decision_type == "GO":
+                rationale_en = f"Score ({total:.0f}/100) meets GO threshold (≥60) with no critical blockers."
+                rationale_ar = f"الدرجة ({total:.0f}/100) تستوفي حد القرار GO (≥60) دون وجود عوامل حظر حرجة."
+            elif decision_type == "REVIEW":
+                if critical_flags:
+                    rationale_en = f"Critical blocker(s) present: {'; '.join(f['title_en'] for f in critical_flags[:2])}."
+                    rationale_ar = f"توجد عوامل حظر حرجة: {'; '.join(f['title_ar'] for f in critical_flags[:2])}."
+                elif major_flags:
+                    rationale_en = f"Major risk flag(s) reduce confidence: {'; '.join(f['title_en'] for f in major_flags[:2])}."
+                    rationale_ar = f"علامات خطر رئيسية تقلل من الثقة: {'; '.join(f['title_ar'] for f in major_flags[:2])}."
+                else:
+                    rationale_en = f"Score ({total:.0f}/100) is in the REVIEW band (40–59). Manual assessment recommended."
+                    rationale_ar = f"الدرجة ({total:.0f}/100) تقع في نطاق المراجعة (40–59). يُوصى بتقييم يدوي."
+            else:  # NO_GO
+                if critical_flags:
+                    rationale_en = f"Disqualifying blocker(s): {'; '.join(f['title_en'] for f in critical_flags[:2])}."
+                    rationale_ar = f"عوامل إسقاط فورية: {'; '.join(f['title_ar'] for f in critical_flags[:2])}."
+                else:
+                    rationale_en = f"Score ({total:.0f}/100) is below the NO_GO threshold (<40)."
+                    rationale_ar = f"الدرجة ({total:.0f}/100) أقل من حد NO_GO (<40)."
+
+            # Green flag highlights
+            green_highlights_en = "; ".join(f["title_en"] for f in green_list[:3]) if green_list else "None"
+            green_highlights_ar = "; ".join(f["title_ar"] for f in green_list[:3]) if green_list else "لا يوجد"
+
+            low_conf = scores.get("low_confidence_sections", [])
+            low_conf_note_en = f" Note: low-confidence areas — {', '.join(low_conf)}." if low_conf else ""
+            low_conf_note_ar = f" ملاحظة: مجالات ذات ثقة منخفضة — {', '.join(low_conf)}." if low_conf else ""
+
             explanation_en = (
-                f"Entropy has a {'strong' if total >= 75 else 'moderate' if total >= 50 else 'weak'} fit "
-                f"for this opportunity (score: {total:.0f}/100). "
-                f"Matched capabilities: {cap_display}. "
-                f"{len(flags_data['green'])} positive signals, {len(flags_data['red'])} risk flags identified."
+                f"Decision: {decision_type} — {rationale_en}\n\n"
+                f"Score breakdown: Total {total:.0f}/100 "
+                f"(Technical fit: {tech_score:.0f}/40 | Business fit: {biz_score:.0f}/30 | Risk penalty: -{risk_score:.0f}/30)\n\n"
+                f"Agency: {agency_name or 'Unknown'} | "
+                f"Estimated value: {value_str} | "
+                f"Duration: {duration_str} | "
+                f"Deadline: {deadline_str}\n\n"
+                f"Matched capabilities ({len(matched_caps)}): {cap_display}\n\n"
+                f"Risk flags ({len(red_list)}): "
+                + ("; ".join(f"[{f.get('severity','MAJOR')}] {f['title_en']}" for f in red_list) if red_list else "None")
+                + f"\n\nPositive signals ({len(green_list)}): {green_highlights_en}"
+                + low_conf_note_en
             )
             explanation_ar = (
-                f"تمتلك Entropy توافقاً {'قوياً' if total >= 75 else 'معقولاً' if total >= 50 else 'ضعيفاً'} "
-                f"مع هذه الفرصة (الدرجة: {total:.0f}/100). "
-                f"القدرات المتطابقة: {cap_display}. "
-                f"تم رصد {len(flags_data['green'])} مؤشر إيجابي و{len(flags_data['red'])} علامة خطر."
+                f"القرار: {decision_type} — {rationale_ar}\n\n"
+                f"تفصيل الدرجات: المجموع {total:.0f}/100 "
+                f"(الملاءمة التقنية: {tech_score:.0f}/40 | الملاءمة التجارية: {biz_score:.0f}/30 | خصم المخاطر: -{risk_score:.0f}/30)\n\n"
+                f"الجهة: {agency_name or 'غير محددة'} | "
+                f"القيمة التقديرية: {value_str} | "
+                f"المدة: {duration_str} | "
+                f"الموعد النهائي: {deadline_str}\n\n"
+                f"القدرات المتطابقة ({len(matched_caps)}): {cap_display}\n\n"
+                f"علامات الخطر ({len(red_list)}): "
+                + ("; ".join(f"[{f.get('severity','MAJOR')}] {f['title_ar']}" for f in red_list) if red_list else "لا يوجد")
+                + f"\n\nالمؤشرات الإيجابية ({len(green_list)}): {green_highlights_ar}"
+                + low_conf_note_ar
             )
 
             decision = Decision(
@@ -475,6 +564,18 @@ async def _extract_text(content: bytes, mime_type: str, filename: str) -> str:
         return await asyncio.to_thread(_extract_pdf_sync, content)
     elif "word" in mime_type or filename.lower().endswith(".docx"):
         return await asyncio.to_thread(_extract_docx_sync, content)
+    elif filename.lower().endswith(".md") or "markdown" in mime_type:
+        # Strip markdown syntax for plain-text analysis
+        import re as _re
+        text = content.decode("utf-8", errors="ignore")
+        text = _re.sub(r"```[\s\S]*?```", "", text)          # code blocks
+        text = _re.sub(r"`[^`]+`", "", text)                  # inline code
+        text = _re.sub(r"!\[.*?\]\(.*?\)", "", text)          # images
+        text = _re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)  # links → label
+        text = _re.sub(r"^#{1,6}\s+", "", text, flags=_re.MULTILINE)  # headings
+        text = _re.sub(r"[*_~]{1,3}([^*_~]+)[*_~]{1,3}", r"\1", text)  # bold/italic
+        text = _re.sub(r"^\s*[-|>]\s*", "", text, flags=_re.MULTILINE)  # bullets/blockquotes/tables
+        return text
     return content.decode("utf-8", errors="ignore")
 
 
@@ -483,9 +584,10 @@ def _extract_pdf_sync(content: bytes) -> str:
     import pdfplumber
     text_parts = []
     with pdfplumber.open(io.BytesIO(content)) as pdf:
-        for page in pdf.pages:
+        for page_num, page in enumerate(pdf.pages, 1):
             text = page.extract_text() or ""
-            text_parts.append(text)
+            # Insert a page marker so _detect_sections can track real page numbers.
+            text_parts.append(f"\x00PAGE:{page_num}\x00\n{text}")
     return "\n\n".join(text_parts)
 
 
@@ -505,18 +607,27 @@ def _detect_sections(text: str) -> list[dict]:
     Arabic RFPs use Arabic-Indic numerals (٠١٢٣٤٥٦٧٨٩), so headings like
     '١- الشروط العامة' were silently skipped, reducing section coverage and
     downstream scoring accuracy.
+
+    Page tracking: _extract_pdf_sync inserts \\x00PAGE:N\\x00 markers at each page
+    boundary. We parse these to set accurate page numbers on each section.
     """
     import re
     sections = []
     lines = text.split("\n")
     current_section: dict = {"title": "Preamble", "content": "", "page": 1}
+    current_page = 1
+    page_marker = re.compile(r"^\x00PAGE:(\d+)\x00$")
     # [\d٠-٩] covers both ASCII digits and Arabic-Indic numerals
     heading_pattern = re.compile(r"^([\d٠-٩]+\.?[\d٠-٩]*\.?\s+.{5,80}|[أ-ي].{2,50}:)$", re.UNICODE)
     for line in lines:
+        m = page_marker.match(line)
+        if m:
+            current_page = int(m.group(1))
+            continue
         if heading_pattern.match(line.strip()) and len(line.strip()) < 80:
             if current_section["content"].strip():
                 sections.append(current_section)
-            current_section = {"title": line.strip(), "content": "", "page": 1}
+            current_section = {"title": line.strip(), "content": "", "page": current_page}
         else:
             current_section["content"] += line + "\n"
     if current_section["content"].strip():
@@ -619,6 +730,17 @@ async def _extract_entities(sections: list[dict], rfp) -> dict:
 
 # ── Flag Detection ─────────────────────────────────────────────────────────────
 
+def _section_page(sections: list[dict], *keywords: str) -> int:
+    """Return the page number of the first section whose title or type matches any keyword."""
+    kw_lower = [k.lower() for k in keywords]
+    for s in sections:
+        title = s.get("title", "").lower()
+        stype = s.get("type", "").lower()
+        if any(k in title or k in stype for k in kw_lower):
+            return s.get("page", 1)
+    return 1
+
+
 async def _detect_flags(sections: list[dict], entities: dict) -> dict:
     """
     Detect red and green flags based on Entropy's actual capabilities,
@@ -650,7 +772,7 @@ async def _detect_flags(sections: list[dict], entities: dict) -> dict:
                     f"{'This is typically a disqualifying requirement.' if severity == 'CRITICAL' else 'May be mitigated through a certified subcontractor.'}"
                 ),
                 "quote": f"Required certification: {cert}",
-                "page": 1,
+                "page": _section_page(sections, "eligibility", "الأهلية", "الشروط"),
                 "section": "Eligibility",
             })
 
@@ -662,7 +784,7 @@ async def _detect_flags(sections: list[dict], entities: dict) -> dict:
             "title_en": "Data residency outside KSA conflicts with PDPL",
             "title_ar": "إقامة البيانات خارج المملكة يتعارض مع نظام PDPL",
             "description_en": "The RFP appears to require data processing or storage outside Saudi Arabia, which conflicts with PDPL and Entropy's data sovereignty commitments.",
-            "page": 1,
+            "page": _section_page(sections, "compliance", "الامتثال", "pdpl"),
             "section": "Compliance",
         })
 
@@ -676,7 +798,7 @@ async def _detect_flags(sections: list[dict], entities: dict) -> dict:
             "title_ar": f"نسبة المحتوى المحلي ({lc_pct}%) تتجاوز القدرة الحالية",
             "description_en": f"A {lc_pct}% local content requirement is very high and may exceed Entropy's current staffing levels.",
             "quote": f"Local content: {lc_pct}%",
-            "page": 1,
+            "page": _section_page(sections, "commercial", "المالي", "السعر"),
             "section": "Commercial Terms",
         })
     elif lc_pct > 50:
@@ -687,7 +809,7 @@ async def _detect_flags(sections: list[dict], entities: dict) -> dict:
             "title_ar": f"نسبة محتوى محلي مرتفعة: {lc_pct}%",
             "description_en": f"Local content requirement of {lc_pct}% may require subcontracting or additional Saudi hires.",
             "quote": f"Local content: {lc_pct}%",
-            "page": 1,
+            "page": _section_page(sections, "commercial", "المالي", "السعر"),
             "section": "Commercial Terms",
         })
 
@@ -699,7 +821,7 @@ async def _detect_flags(sections: list[dict], entities: dict) -> dict:
             "title_en": "Security clearance required",
             "title_ar": "يتطلب تصريحاً أمنياً",
             "description_en": "The RFP requires personnel security clearance. Verify Entropy's team eligibility before bidding.",
-            "page": 1,
+            "page": _section_page(sections, "eligibility", "الأهلية", "الشروط", "security", "أمن"),
             "section": "Eligibility",
         })
 
@@ -712,7 +834,7 @@ async def _detect_flags(sections: list[dict], entities: dict) -> dict:
             "title_en": f"Very short delivery timeline: {duration} month(s)",
             "title_ar": f"جدول زمني قصير جداً: {duration} شهر",
             "description_en": f"A {duration}-month delivery window is tight for a data/AI project. Risk of scope creep and delivery failure.",
-            "page": 1,
+            "page": _section_page(sections, "timeline", "الجدول", "المدة", "تسليم"),
             "section": "Timeline",
         })
 
@@ -726,7 +848,7 @@ async def _detect_flags(sections: list[dict], entities: dict) -> dict:
             "title_en": f"Existing client: {issuing_agency}",
             "title_ar": f"عميل حالي: {issuing_agency}",
             "description_en": f"Entropy has an active or prior engagement with {issuing_agency}, providing a competitive advantage.",
-            "page": 1,
+            "page": _section_page(sections, "preamble", "المقدمة", "scope"),
             "section": "Preamble",
         })
     elif issuing_agency:
@@ -734,7 +856,7 @@ async def _detect_flags(sections: list[dict], entities: dict) -> dict:
             "title_en": f"Strategic target agency: {issuing_agency}",
             "title_ar": f"جهة مستهدفة استراتيجياً: {issuing_agency}",
             "description_en": f"{issuing_agency} is on Entropy's strategic target list.",
-            "page": 1,
+            "page": _section_page(sections, "preamble", "المقدمة", "scope"),
             "section": "Preamble",
         })
 
@@ -744,7 +866,7 @@ async def _detect_flags(sections: list[dict], entities: dict) -> dict:
             "title_en": "NDMO/NDI compliance required — Entropy's strength",
             "title_ar": "يتطلب الامتثال لمعايير NDMO/NDI — ميزة تنافسية لـ Entropy",
             "description_en": "Entropy has delivered NDMO-compliant data management for the Digital Government Authority and other government clients.",
-            "page": 1,
+            "page": _section_page(sections, "compliance", "الامتثال", "ndmo"),
             "section": "Compliance",
         })
 
@@ -754,7 +876,7 @@ async def _detect_flags(sections: list[dict], entities: dict) -> dict:
             "title_en": "Arabic-first requirement — core Entropy differentiator",
             "title_ar": "متطلبات عربية أولى — ميزة Entropy الجوهرية",
             "description_en": "Entropy builds Arabic-first AI systems with deep cultural and linguistic context — a key differentiator in the Saudi market.",
-            "page": 1,
+            "page": _section_page(sections, "scope", "نطاق", "المخرجات"),
             "section": "Scope",
         })
 
@@ -765,7 +887,7 @@ async def _detect_flags(sections: list[dict], entities: dict) -> dict:
                 "title_en": f"Technology partner alignment: {partner}",
                 "title_ar": f"توافق مع شريك تقني: {partner}",
                 "description_en": f"The RFP mentions {partner}, which is an Entropy technology partner — reducing integration risk.",
-                "page": 1,
+                "page": _section_page(sections, "technical", "تقني", "هندسة"),
                 "section": "Technical",
             })
             break  # One partner match is enough
@@ -776,7 +898,7 @@ async def _detect_flags(sections: list[dict], entities: dict) -> dict:
             "title_en": "On-premise deployment supported",
             "title_ar": "نشر البنية التحتية المحلية مدعوم",
             "description_en": "Entropy's Hydrogen and Axiom products support flexible deployment including on-premises and private cloud.",
-            "page": 1,
+            "page": _section_page(sections, "technical", "تقني", "هندسة", "infrastructure"),
             "section": "Technical",
         })
 
@@ -812,6 +934,177 @@ def _match_capabilities(sections: list[dict], full_text: str = "") -> dict:
         "weighted_score": round(weighted_score, 2),
         "coverage": round(coverage, 2),
     }
+
+
+# ── Claude LLM Deep Analysis ───────────────────────────────────────────────────
+
+_LLM_ANALYSIS_PROMPT = """You are a senior bid qualification analyst for Entropy, a Saudi AI company.
+You receive the full text of a tender (RFP) document and must analyse it deeply to support a Go/No-Go decision.
+
+Extract the following and return ONLY a valid JSON object — no markdown, no explanation:
+
+{
+  "entities": {
+    "issuing_agency": "<string | null>",
+    "estimated_value_sar": <number | null>,
+    "deadline": "<YYYY-MM-DD | null>",
+    "duration_months": <number | null>,
+    "deployment_model": "<on_prem | cloud | hybrid | null>",
+    "required_certs": ["<string>"],
+    "local_content_pct": <number | null>,
+    "data_outside_ksa": <true | false>,
+    "requires_security_clearance": <true | false>,
+    "primary_language": "<arabic | english | mixed>"
+  },
+  "red_flags": [
+    {
+      "code": "<string>",
+      "severity": "<CRITICAL | MAJOR | MINOR>",
+      "title_en": "<string>",
+      "title_ar": "<string>",
+      "description_en": "<string>",
+      "evidence": "<direct quote from document | null>"
+    }
+  ],
+  "green_flags": [
+    {
+      "title_en": "<string>",
+      "title_ar": "<string>",
+      "description_en": "<string>",
+      "evidence": "<direct quote from document | null>"
+    }
+  ],
+  "capability_signals": ["<capability keyword found in document>"],
+  "summary_ar": "<2–3 sentence Arabic summary of the opportunity>",
+  "summary_en": "<2–3 sentence English summary of the opportunity>",
+  "analyst_confidence": <0.0–1.0>
+}
+
+Entropy's known certifications: NDMO, NDI.
+Entropy's capabilities: Arabic NLP, Generative AI, Agentic AI, Computer Vision, Speech Recognition,
+  Document Intelligence, Data Engineering, Data Platform, Data Management, Analytics & BI,
+  Time-Series Forecasting, Traditional ML.
+Entropy's existing clients: Ministry of Commerce, Digital Government Authority, Ministry of Interior,
+  Ministry of Industry & Mineral Resources, NHC, King Salman Global Academy,
+  Monsha'at, Royal Saudi Land Forces, Saudi Irrigation Organization.
+
+Red flag codes to use (pick the most appropriate or invent a descriptive code):
+  MANDATORY_CERT_NOT_HELD, DATA_RESIDENCY_OUTSIDE_KSA, LOCAL_CONTENT_HIGH,
+  SECURITY_CLEARANCE_REQUIRED, UNREALISTIC_TIMELINE, PDPL_CONFLICT,
+  CONFLICT_OF_INTEREST, BUDGET_TOO_SMALL, SCOPE_MISMATCH, HIGH_COMPETITION_RISK.
+
+Be conservative: only flag real risks you can cite from the text. Do NOT hallucinate."""
+
+
+async def _llm_analyze(all_text: str) -> dict:
+    """Send the full document text to Claude claude-opus-4-6 for deep semantic analysis.
+
+    Returns a dict with keys: entities, red_flags, green_flags, capability_signals,
+    summary_ar, summary_en, analyst_confidence.
+    Falls back to empty result on any error so the pipeline always continues.
+    """
+    try:
+        from services.llm_client import make_anthropic_client
+        client = make_anthropic_client()
+
+        # Truncate to fit context — 80k chars covers most RFPs
+        text_excerpt = all_text[:80000]
+
+        response = await client.messages.create(
+            model="claude-opus-4-6",
+            max_tokens=4096,
+            system=_LLM_ANALYSIS_PROMPT,
+            messages=[{"role": "user", "content": f"Document text:\n\n{text_excerpt}"}],
+        )
+
+        raw = response.content[0].text.strip()
+
+        # Strip markdown fences if present
+        if raw.startswith("```"):
+            raw = "\n".join(raw.splitlines()[1:])
+            if raw.strip().endswith("```"):
+                raw = raw[:raw.rfind("```")].strip()
+
+        result = json.loads(raw)
+        logger.info("LLM analysis complete",
+                    confidence=result.get("analyst_confidence"),
+                    red_flags=len(result.get("red_flags", [])),
+                    green_flags=len(result.get("green_flags", [])))
+        return result
+
+    except Exception as exc:
+        logger.warning("LLM analysis failed — continuing with rule-based results", error=str(exc))
+        return {}
+
+
+def _merge_llm_results(
+    rule_entities: dict,
+    rule_flags: dict,
+    llm_result: dict,
+) -> tuple[dict, dict]:
+    """Merge Claude's output with the rule-based extraction.
+
+    Strategy:
+    - Entities: Claude fills gaps; rule-based values override where they exist
+      (regex is more precise for numbers/dates).
+    - Flags: union of both sets, deduped by (code, severity).
+    - Green flags: union, deduped by title_en.
+    """
+    # ── Entities merge ────────────────────────────────────────────────────────
+    llm_entities: dict = llm_result.get("entities", {})
+    merged_entities = dict(rule_entities)
+
+    for key in ("issuing_agency", "estimated_value_sar", "deadline", "duration_months",
+                "deployment_model", "local_content_pct", "data_outside_ksa",
+                "requires_security_clearance", "primary_language"):
+        if key not in merged_entities or merged_entities[key] is None:
+            val = llm_entities.get(key)
+            if val is not None:
+                merged_entities[key] = val
+
+    # Merge required_certs lists
+    rule_certs = set(merged_entities.get("required_certs", []))
+    llm_certs = set(llm_entities.get("required_certs", []))
+    merged_entities["required_certs"] = list(rule_certs | llm_certs)
+
+    # ── Flags merge ───────────────────────────────────────────────────────────
+    existing_red_keys = {(f.get("code"), f.get("severity")) for f in rule_flags.get("red", [])}
+    merged_red = list(rule_flags.get("red", []))
+
+    for llm_flag in llm_result.get("red_flags", []):
+        key = (llm_flag.get("code"), llm_flag.get("severity"))
+        if key not in existing_red_keys:
+            # Translate to the internal schema
+            merged_red.append({
+                "code": llm_flag.get("code", "LLM_FLAG"),
+                "severity": llm_flag.get("severity", "MAJOR"),
+                "title_en": llm_flag.get("title_en", ""),
+                "title_ar": llm_flag.get("title_ar", ""),
+                "description_en": llm_flag.get("description_en", ""),
+                "quote": llm_flag.get("evidence"),
+                "page": 1,
+                "section": "LLM Analysis",
+            })
+            existing_red_keys.add(key)
+
+    existing_green_titles = {f.get("title_en") for f in rule_flags.get("green", [])}
+    merged_green = list(rule_flags.get("green", []))
+
+    for llm_flag in llm_result.get("green_flags", []):
+        title = llm_flag.get("title_en", "")
+        if title not in existing_green_titles:
+            merged_green.append({
+                "title_en": title,
+                "title_ar": llm_flag.get("title_ar", ""),
+                "description_en": llm_flag.get("description_en", ""),
+                "quote": llm_flag.get("evidence"),
+                "page": 1,
+                "section": "LLM Analysis",
+            })
+            existing_green_titles.add(title)
+
+    merged_flags = {"red": merged_red, "green": merged_green[:8]}
+    return merged_entities, merged_flags
 
 
 # ── Score Computation ──────────────────────────────────────────────────────────

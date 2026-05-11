@@ -2,17 +2,18 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { use } from "react";
+
 import useSWR from "swr";
 import { AppShell } from "@/components/layout/app-shell";
 import { StatusPill } from "@/components/status-pill";
 import { rfpApi } from "@/lib/api";
 import { cn, formatDate } from "@/lib/utils";
-import { ArrowRight, Calendar, Building2 } from "lucide-react";
+import { ArrowRight, Calendar, Building2, User } from "lucide-react";
 
 const TABS = [
   { href: "decision",   label: "القرار",          labelEn: "Decision"   },
   { href: "explorer",   label: "استعراض الوثيقة",  labelEn: "Explorer"   },
+  { href: "deck",       label: "العرض التقديمي",   labelEn: "Deck"       },
   { href: "proposal",   label: "المقترح",          labelEn: "Proposal"   },
   { href: "review",     label: "المراجعة",         labelEn: "Review"     },
   { href: "export",     label: "التصدير",          labelEn: "Export"     },
@@ -20,11 +21,11 @@ const TABS = [
 
 interface LayoutProps {
   children: React.ReactNode;
-  params: Promise<{ id: string }>;
+  params: { id: string };
 }
 
 export default function RFPLayout({ children, params }: LayoutProps) {
-  const { id } = use(params);
+  const { id } = params;
   const pathname = usePathname();
 
   const { data } = useSWR(`rfp-${id}`, () => rfpApi.get(id).then((r) => r.data));
@@ -62,6 +63,12 @@ export default function RFPLayout({ children, params }: LayoutProps) {
                   <span className="flex items-center gap-1.5 text-body-sm text-neutral-500">
                     <Calendar className="h-3.5 w-3.5" aria-hidden />
                     {formatDate(rfp.deadline)}
+                  </span>
+                )}
+                {rfp?.uploadedByName && (
+                  <span className="flex items-center gap-1.5 text-body-sm text-neutral-500" title="فحص بواسطة">
+                    <User className="h-3.5 w-3.5" aria-hidden />
+                    فحص بواسطة: <span className="font-medium text-neutral-700">{rfp.uploadedByName}</span>
                   </span>
                 )}
               </div>

@@ -1,13 +1,13 @@
 "use client";
 
-import { use, useState } from "react";
+import { useState } from "react";
 import useSWR from "swr";
 import { proposalApi } from "@/lib/api";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { MessageSquare, CheckCircle2, Clock, AlertCircle, Send, Loader2, User } from "lucide-react";
 import type { ProposalSection } from "@/lib/types";
 
-interface Props { params: Promise<{ id: string }> }
+interface Props { params: { id: string } }
 
 interface Comment {
   id: string;
@@ -19,7 +19,7 @@ interface Comment {
 }
 
 export default function ReviewPage({ params }: Props) {
-  const { id } = use(params);
+  const { id } = params;
   const [selectedSection, setSelectedSection] = useState<string | null>(null);
   const [comment, setComment] = useState("");
   const [sending, setSending] = useState(false);

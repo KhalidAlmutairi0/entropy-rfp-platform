@@ -31,7 +31,11 @@ class PaginatedResponse(BaseModel, Generic[T]):
     page_size: int
     total_pages: int
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        alias_generator=_to_camel,
+        populate_by_name=True,
+    )
 
 
 class ErrorResponse(BaseModel):

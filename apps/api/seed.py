@@ -129,5 +129,51 @@ async def seed():
             print("Templates seeded.")
 
 
+async def add_bd_user(name: str, email: str, password: str) -> None:
+    """Pre-create a BD Person account (role=BD_PERSON) with a bcrypt-hashed password.
+
+    Usage:
+        python seed.py --add-bd-user --name "Ahmad Al-Harbi" --email "ahmad@entropy.sa" --password "..."
+    """
+    from sqlalchemy import select
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with AsyncSessionLocal() as db:
+        existing = await db.execute(select(User).where(User.email == email))
+        if existing.scalar_one_or_none():
+            print(f"User {email} already exists — skipping.")
+            return
+
+        user = User(
+            email=email,
+            name=name,
+            hashed_password=hash_password(password),
+            role="BD_PERSON",
+            is_active=True,
+            mfa_enabled=False,
+            preferred_language="ar",
+            preferred_timezone="Asia/Riyadh",
+        )
+        db.add(user)
+        await db.commit()
+        print(f"BD Person created: {email} (display name: {name})")
+
+
 if __name__ == "__main__":
-    asyncio.run(seed())
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Entropy seed script")
+    parser.add_argument("--add-bd-user", action="store_true", help="Create a BD Person account")
+    parser.add_argument("--name", type=str, help="Display name for BD Person")
+    parser.add_argument("--email", type=str, help="Email for BD Person")
+    parser.add_argument("--password", type=str, help="Plain-text password (will be bcrypt-hashed)")
+    args = parser.parse_args()
+
+    if args.add_bd_user:
+        if not args.name or not args.email or not args.password:
+            parser.error("--add-bd-user requires --name, --email, and --password")
+        asyncio.run(add_bd_user(args.name, args.email, args.password))
+    else:
+        asyncio.run(seed())

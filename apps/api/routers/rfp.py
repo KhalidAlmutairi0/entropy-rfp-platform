@@ -1,5 +1,6 @@
 """RFP management router."""
 
+import asyncio
 import hashlib
 import io
 import json
@@ -78,15 +79,22 @@ async def list_rfps(
     current_user: Annotated[User, Depends(require_permission(Permission.VIEW_RFP))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> PaginatedResponse[RFPListResponse]:
-    """List all RFPs with optional filtering and pagination."""
+    """List all RFPs with optional filtering and pagination.
+    BD_PERSON role sees only their own uploaded RFPs.
+    """
+    from core.rbac import Role
     query = select(RFP).where(RFP.is_deleted == False)  # noqa: E712
+
+    # BD persons see only their own files — enforced server-side regardless of filters
+    if current_user.role == Role.BD_PERSON.value:
+        query = query.where(RFP.owner_id == current_user.id)
+    elif filters.owner_id:
+        query = query.where(RFP.owner_id == filters.owner_id)
 
     if filters.status:
         query = query.where(RFP.status == filters.status)
     if filters.agency:
         query = query.where(RFP.agency.ilike(f"%{filters.agency}%"))
-    if filters.owner_id:
-        query = query.where(RFP.owner_id == filters.owner_id)
     if filters.language:
         query = query.where(RFP.language == filters.language)
     if filters.search:
@@ -168,6 +176,7 @@ async def upload_rfp(
         deadline=datetime.fromisoformat(deadline) if deadline else None,
         estimated_value_sar=estimated_value_sar,
         owner_id=current_user.id,
+        uploaded_by_name=current_user.name,  # Immutable — set once at upload, never changed
         file_count=len(files),
     )
     db.add(rfp)
@@ -239,7 +248,9 @@ async def update_rfp(
     current_user: Annotated[User, Depends(require_permission(Permission.UPLOAD_RFP))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> RFPResponse:
-    result = await db.execute(select(RFP).where(RFP.id == rfp_id, RFP.is_deleted == False))  # noqa: E712
+    result = await db.execute(
+        select(RFP).options(selectinload(RFP.files)).where(RFP.id == rfp_id, RFP.is_deleted == False)  # noqa: E712
+    )
     rfp = result.scalar_one_or_none()
     if not rfp:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RFP not found")
@@ -259,7 +270,7 @@ async def delete_rfp(
     current_user: Annotated[User, Depends(require_permission(Permission.MANAGE_KB))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> None:
-    result = await db.execute(select(RFP).where(RFP.id == rfp_id))
+    result = await db.execute(select(RFP).where(RFP.id == rfp_id, RFP.is_deleted == False))  # noqa: E712
     rfp = result.scalar_one_or_none()
     if not rfp:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RFP not found")
@@ -290,22 +301,10 @@ async def trigger_analysis(
     await log_action(db, current_user.id, "trigger_analysis", "rfp", str(rfp_id), ip_address=request.client.host if request.client else None)
     await db.commit()
 
-    try:
-        from tasks.ingestion_tasks import process_rfp_task
-        celery_task = process_rfp_task.delay(str(rfp_id))
-        task_id = celery_task.id
-        # Update task_id to the real Celery task ID
-        rfp.processing_task_id = task_id
-        await db.commit()
-    except Exception:
-        # Celery broker not available — run directly in FastAPI background thread
-        import asyncio
-        from tasks.ingestion_tasks import _process_rfp_async
-
-        def _run(rid: str) -> None:
-            asyncio.run(_process_rfp_async(rid, None))
-
-        background_tasks.add_task(_run, str(rfp_id))
+    # Run analysis as a background async task in the same event loop.
+    # This avoids thread/event-loop mismatch issues with SQLAlchemy async engine.
+    from tasks.ingestion_tasks import _process_rfp_async
+    asyncio.create_task(_process_rfp_async(str(rfp_id), None))
 
     return {"task_id": task_id, "status": "queued"}
 
@@ -338,3 +337,45 @@ async def stream_processing_status(
             await pubsub.unsubscribe(f"rfp:processing:{rfp_id}")
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+# ── Deck download (POST /generate-deck is now handled by proposal router) ──────
+
+@router.get("/{rfp_id}/deck")
+async def download_deck(
+    rfp_id: uuid.UUID,
+    current_user: Annotated[User, Depends(require_permission(Permission.VIEW_RFP))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    storage: StorageService = Depends(StorageService.get_instance),
+) -> StreamingResponse:
+    """Download the generated proposal deck (.pptx or legacy .pdf)."""
+    result = await db.execute(select(RFP).where(RFP.id == rfp_id, RFP.is_deleted == False))  # noqa: E712
+    rfp = result.scalar_one_or_none()
+    if not rfp:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RFP not found")
+
+    if rfp.deck_status != "READY" or not rfp.deck_pdf_path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Deck not ready. Current status: {rfp.deck_status or 'not started'}",
+        )
+
+    content = await storage.download_file(rfp.deck_pdf_path)
+
+    # Detect format from stored path to support both the new .pptx pipeline and legacy .pdf decks
+    is_pptx = rfp.deck_pdf_path.endswith(".pptx")
+    media_type = (
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        if is_pptx
+        else "application/pdf"
+    )
+    filename = f"proposal_{rfp_id}" + (".pptx" if is_pptx else ".pdf")
+
+    async def stream_content():
+        yield content
+
+    return StreamingResponse(
+        stream_content(),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

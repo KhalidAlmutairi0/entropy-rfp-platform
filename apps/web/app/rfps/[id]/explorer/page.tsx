@@ -1,13 +1,13 @@
 "use client";
 
-import { use, useState, useRef } from "react";
+import { useState, useRef } from "react";
 import useSWR from "swr";
 import { rfpApi, decisionApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Search, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, AlertTriangle, CheckCircle2, X } from "lucide-react";
 import type { Flag } from "@/lib/types";
 
-interface Props { params: Promise<{ id: string }> }
+interface Props { params: { id: string } }
 
 const FLAG_COLOR: Record<string, string> = {
   RED: "border-danger-400 bg-danger-50",
@@ -15,7 +15,7 @@ const FLAG_COLOR: Record<string, string> = {
 };
 
 export default function ExplorerPage({ params }: Props) {
-  const { id } = use(params);
+  const { id } = params;
   const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(1);
   const [search, setSearch] = useState("");

@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback } from "react";
 import useSWR from "swr";
 import { proposalApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -10,10 +10,10 @@ import {
 } from "lucide-react";
 import type { ProposalSection } from "@/lib/types";
 
-interface Props { params: Promise<{ id: string }> }
+interface Props { params: { id: string } }
 
 export default function ProposalPage({ params }: Props) {
-  const { id } = use(params);
+  const { id } = params;
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [lang, setLang] = useState<"ar" | "en">("ar");
   const [previewMode, setPreviewMode] = useState(false);

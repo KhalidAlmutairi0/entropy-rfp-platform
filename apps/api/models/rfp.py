@@ -48,6 +48,12 @@ class RFP(Base):
     deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     estimated_value_sar: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
     owner_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id", ondelete="SET NULL"), nullable=False, index=True)
+    # Denormalized display name — immutable after upload, shown as "Checked by: ..."
+    uploaded_by_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Deck generation
+    deck_pdf_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    deck_status: Mapped[str | None] = mapped_column(String(50), nullable=True)  # None | PENDING | GENERATING | READY | FAILED
+    deck_task_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     file_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     total_pages: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     ocr_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)

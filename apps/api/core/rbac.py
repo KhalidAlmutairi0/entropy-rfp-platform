@@ -6,6 +6,7 @@ from enum import Enum
 class Role(str, Enum):
     ADMIN = "ADMIN"
     BD_MANAGER = "BD_MANAGER"
+    BD_PERSON = "BD_PERSON"  # Single actor for Phase 1 MVP — pre-created accounts, sees own RFPs only
     PRE_SALES = "PRE_SALES"
     PROPOSAL_WRITER = "PROPOSAL_WRITER"
     REVIEWER = "REVIEWER"
@@ -48,6 +49,15 @@ role_permissions: dict[Role, set[Permission]] = {
         Permission.EXPORT_PROPOSAL,
         Permission.VIEW_ANALYTICS,
         Permission.MANAGE_TEMPLATES,
+    },
+
+    Role.BD_PERSON: {
+        Permission.UPLOAD_RFP,
+        Permission.RUN_ANALYSIS,
+        Permission.VIEW_RFP,
+        Permission.GENERATE_PROPOSAL,
+        Permission.EDIT_PROPOSAL,
+        Permission.EXPORT_PROPOSAL,
     },
 
     Role.PRE_SALES: {

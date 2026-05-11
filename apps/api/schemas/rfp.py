@@ -51,9 +51,11 @@ class RFPResponse(CamelModel):
     deadline: datetime | None
     estimated_value_sar: float | None
     owner_id: uuid.UUID
+    uploaded_by_name: str | None = None
     file_count: int
     total_pages: int
     ocr_confidence: float | None
+    deck_status: str | None = None
     created_at: datetime
     updated_at: datetime
     files: list[RFPFileResponse] = []
@@ -68,6 +70,7 @@ class RFPListResponse(CamelModel):
     deadline: datetime | None
     estimated_value_sar: float | None
     owner_id: uuid.UUID
+    uploaded_by_name: str | None = None
     created_at: datetime
     updated_at: datetime
     fit_score: float | None = None  # Populated from Decision table

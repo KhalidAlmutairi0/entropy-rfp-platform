@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy import String
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import NullPool, StaticPool
 from sqlalchemy.types import TypeDecorator
 
 
@@ -42,8 +43,16 @@ from core.config import settings
 
 # SQLite doesn't support pool_size/max_overflow
 _is_sqlite = settings.database_url.startswith("sqlite")
-_engine_kwargs: dict = {"echo": settings.is_development}
-if not _is_sqlite:
+# Disable SQLAlchemy SQL echo on Windows dev — Arabic text in SQL logs
+# causes UnicodeEncodeError when the console uses a non-UTF-8 codec (cp1252).
+_engine_kwargs: dict = {"echo": False}
+if _is_sqlite:
+    # StaticPool: share a single connection across all sessions so SQLite never
+    # sees two concurrent writers and "database is locked" errors are eliminated.
+    # check_same_thread=False is required for aiosqlite's thread-handoff model.
+    _engine_kwargs["connect_args"] = {"check_same_thread": False}
+    _engine_kwargs["poolclass"] = StaticPool
+else:
     _engine_kwargs.update({"pool_pre_ping": True, "pool_size": 10, "max_overflow": 20})
 
 engine = create_async_engine(settings.database_url, **_engine_kwargs)

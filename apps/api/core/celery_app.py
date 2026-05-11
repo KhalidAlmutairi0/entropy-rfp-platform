@@ -20,6 +20,10 @@ celery_app.conf.update(
     task_track_started=True,
     task_acks_late=True,
     worker_prefetch_multiplier=1,
+    # Fail fast when broker is unavailable — fallback to BackgroundTasks in dev
+    broker_connection_timeout=1,
+    broker_connection_retry=False,
+    broker_connection_retry_on_startup=False,
     task_routes={
         "tasks.ingestion_tasks.*": {"queue": "ingestion"},
         "tasks.indexing_tasks.*": {"queue": "indexing"},

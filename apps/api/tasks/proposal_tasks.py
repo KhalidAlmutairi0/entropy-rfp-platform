@@ -45,6 +45,15 @@ async def _generate_sections_async(proposal_id: str, rfp_id: str, sections_to_us
     storage = StorageService.get_instance()
     company_brief = _load_entropy_brief()
 
+    # ── Phase 1: Load all data and create locked sections ─────────────────────
+    # Keep this session short — close it before the long AI generation phase so
+    # the database write lock is not held while awaiting external LLM calls.
+    rfp_context: str = ""
+    source_catalog: list[dict] = []
+    agenda: list[dict] = []
+    proposal_id_uuid = None
+    template_sections_map: dict[str, dict] = {}
+
     async with AsyncSessionLocal() as db:
         proposal = (
             await db.execute(
@@ -60,11 +69,12 @@ async def _generate_sections_async(proposal_id: str, rfp_id: str, sections_to_us
         if not rfp:
             return {"error": "RFP not found for proposal"}
 
+        proposal_id_uuid = proposal.id
+
         # Avoid duplicate sections if task is retried/retriggered.
         await db.execute(delete(ProposalSection).where(ProposalSection.proposal_id == proposal.id))
         await db.flush()
 
-        template_sections_map: dict[str, dict] = {}
         if proposal.template_id:
             template_sections = (
                 await db.execute(
@@ -90,8 +100,17 @@ async def _generate_sections_async(proposal_id: str, rfp_id: str, sections_to_us
                 )
             ).scalars().all()
 
+        # Snapshot flags into plain dicts so the DB session can close
+        flags_snapshot = [
+            {"flag_type": f.flag_type, "title_ar": f.title_ar, "title_en": f.title_en,
+             "flag_code": getattr(f, "flag_code", None),
+             "description_ar": f.description_ar, "description_en": f.description_en,
+             "evidence_quote": f.evidence_quote}
+            for f in flags
+        ]
+
         rfp_text_blocks: list[str] = []
-        source_catalog: list[dict] = [
+        source_catalog = [
             {
                 "source_id": "BRIEF_ENTROPY",
                 "source_type": "CAPABILITY",
@@ -143,69 +162,89 @@ async def _generate_sections_async(proposal_id: str, rfp_id: str, sections_to_us
                     }
                 )
 
-        red_flags = [f for f in flags if f.flag_type == "RED"]
-        green_flags = [f for f in flags if f.flag_type == "GREEN"]
+        red_flags = [f for f in flags_snapshot if f["flag_type"] == "RED"]
+        green_flags = [f for f in flags_snapshot if f["flag_type"] == "GREEN"]
         if red_flags or green_flags:
             flag_lines = ["=== Qualification Flags ==="]
             for f in red_flags[:10]:
                 flag_lines.append(
-                    f"RED | {f.title_ar or f.title_en or f.flag_code or 'Risk'} | {f.description_ar or f.description_en or f.evidence_quote or ''}"
+                    f"RED | {f['title_ar'] or f['title_en'] or f['flag_code'] or 'Risk'} | "
+                    f"{f['description_ar'] or f['description_en'] or f['evidence_quote'] or ''}"
                 )
             for f in green_flags[:10]:
                 flag_lines.append(
-                    f"GREEN | {f.title_ar or f.title_en or f.flag_code or 'Signal'} | {f.description_ar or f.description_en or f.evidence_quote or ''}"
+                    f"GREEN | {f['title_ar'] or f['title_en'] or f['flag_code'] or 'Signal'} | "
+                    f"{f['description_ar'] or f['description_en'] or f['evidence_quote'] or ''}"
                 )
             rfp_text_blocks.append("\n".join(flag_lines))
 
         requirements = _extract_requirement_lines("\n\n".join(rfp_text_blocks))
         rfp_context = _build_rfp_context(rfp, rfp_text_blocks, requirements)
-
         agenda = sections_to_use if sections_to_use else DEFAULT_SECTIONS
-        created = 0
+
+        # Save locked sections now (fast DB write, no external calls)
         for idx, section_def in enumerate(agenda):
-            is_locked = section_def.get("is_locked", False)
+            if not section_def.get("is_locked", False):
+                continue
             title_ar = section_def.get("title_ar", "") or ""
             title_en = section_def.get("title_en", "") or ""
-            instructions = section_def.get("ai_instructions") or _resolve_template_instructions(
-                template_sections_map, title_ar, title_en
-            )
-            if section_def.get("word_count_target"):
-                instructions = f"{instructions or ''}\nTarget word count: {section_def['word_count_target']}".strip()
-
-            if is_locked:
-                section = ProposalSection(
-                    proposal_id=proposal.id,
-                    order_index=idx,
-                    title_ar=title_ar,
-                    title_en=title_en,
-                    is_locked=True,
-                    is_ai_generated=False,
-                    content_ar=_locked_section_text(title_ar or title_en),
-                    content_en="This section is locked for manual completion.",
-                    confidence=0.0,
-                    has_ungrounded_claims=False,
-                    citations_json="[]",
-                    word_count=0,
-                    generation_prompt_version="proposal-v2",
-                )
-                db.add(section)
-                created += 1
-                continue
-
-            generation = await generate_section_content(
-                section_title=title_ar or title_en or f"Section {idx + 1}",
-                language="ar",
-                rfp_context=rfp_context,
-                brief_context=company_brief,
-                instructions=instructions,
-                source_catalog=source_catalog,
-            )
-            citations_json = json.dumps(generation.get("citations", []), ensure_ascii=False)
-            section = ProposalSection(
+            db.add(ProposalSection(
                 proposal_id=proposal.id,
                 order_index=idx,
                 title_ar=title_ar,
                 title_en=title_en,
+                is_locked=True,
+                is_ai_generated=False,
+                content_ar=_locked_section_text(title_ar or title_en),
+                content_en="This section is locked for manual completion.",
+                confidence=0.0,
+                has_ungrounded_claims=False,
+                citations_json="[]",
+                word_count=0,
+                generation_prompt_version="proposal-v2",
+            ))
+
+        await db.commit()
+    # ── DB session closed — no write lock held beyond this point ─────────────
+
+    # ── Phase 2: AI generation (no DB session open) ───────────────────────────
+    generated_sections: list[dict] = []
+    for idx, section_def in enumerate(agenda):
+        if section_def.get("is_locked", False):
+            continue
+        title_ar = section_def.get("title_ar", "") or ""
+        title_en = section_def.get("title_en", "") or ""
+        instructions = section_def.get("ai_instructions") or _resolve_template_instructions(
+            template_sections_map, title_ar, title_en
+        )
+        if section_def.get("word_count_target"):
+            instructions = f"{instructions or ''}\nTarget word count: {section_def['word_count_target']}".strip()
+
+        generation = await generate_section_content(
+            section_title=title_ar or title_en or f"Section {idx + 1}",
+            language="ar",
+            rfp_context=rfp_context,
+            brief_context=company_brief,
+            instructions=instructions,
+            source_catalog=source_catalog,
+        )
+        generated_sections.append({
+            "idx": idx,
+            "title_ar": title_ar,
+            "title_en": title_en,
+            "generation": generation,
+        })
+
+    # ── Phase 3: Persist AI-generated sections (short DB write) ──────────────
+    async with AsyncSessionLocal() as db:
+        for item in generated_sections:
+            generation = item["generation"]
+            citations_json = json.dumps(generation.get("citations", []), ensure_ascii=False)
+            db.add(ProposalSection(
+                proposal_id=proposal_id_uuid,
+                order_index=item["idx"],
+                title_ar=item["title_ar"],
+                title_en=item["title_en"],
                 is_locked=False,
                 is_ai_generated=True,
                 content_ar=generation.get("content"),
@@ -215,13 +254,12 @@ async def _generate_sections_async(proposal_id: str, rfp_id: str, sections_to_us
                 citations_json=citations_json,
                 word_count=generation.get("word_count", 0),
                 generation_prompt_version="proposal-v2",
-            )
-            db.add(section)
-            created += 1
-
+            ))
         await db.commit()
-        logger.info("Proposal sections generated", proposal_id=proposal_id, sections=created)
-        return {"proposal_id": proposal_id, "sections_created": created}
+
+    created = len([s for s in agenda if not s.get("is_locked", False)]) + len([s for s in agenda if s.get("is_locked", False)])
+    logger.info("Proposal sections generated", proposal_id=proposal_id, sections=created)
+    return {"proposal_id": proposal_id, "sections_created": created}
 
 
 def _extract_requirement_lines(text: str) -> list[str]:

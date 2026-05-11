@@ -131,7 +131,7 @@ export default function DashboardPage() {
             <table className="w-full text-body-sm">
               <thead>
                 <tr className="border-b border-neutral-100 text-start">
-                  {["#", "العنوان", "الجهة", "الحالة", "الدرجة", "التحديث", ""].map((h) => (
+                  {["#", "العنوان", "الجهة", "فحص بواسطة", "الحالة", "الدرجة", "التحديث", ""].map((h) => (
                     <th key={h} className="px-4 py-3 text-start font-medium text-neutral-500 text-caption">{h}</th>
                   ))}
                 </tr>
@@ -141,7 +141,6 @@ export default function DashboardPage() {
                   <tr
                     key={rfp.id}
                     className="border-b border-neutral-50 hover:bg-neutral-50 transition-colors cursor-pointer"
-                    // Fix B-F12: use Next.js router instead of window.location.href (avoids full page reload)
                     onClick={() => router.push(`/rfps/${rfp.id}/decision`)}
                   >
                     <td className="px-4 py-3 text-neutral-400 tabular-nums">{idx + 1}</td>
@@ -150,10 +149,15 @@ export default function DashboardPage() {
                         title={rfp.titleAr || rfp.titleEn || ""}
                         className="font-medium text-neutral-800"
                       >
-                        {truncate(rfp.titleAr || rfp.titleEn || "بدون عنوان", 55)}
+                        {truncate(rfp.titleAr || rfp.titleEn || "بدون عنوان", 50)}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-neutral-500">{rfp.agency || "—"}</td>
+                    <td className="px-4 py-3 text-neutral-500 text-caption">
+                      {rfp.uploadedByName ? (
+                        <span title={`فحص بواسطة: ${rfp.uploadedByName}`}>{rfp.uploadedByName}</span>
+                      ) : "—"}
+                    </td>
                     <td className="px-4 py-3">
                       <StatusPill status={rfp.status} />
                     </td>

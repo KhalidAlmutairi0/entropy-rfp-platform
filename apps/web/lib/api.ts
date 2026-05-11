@@ -54,6 +54,17 @@ export const rfpApi = {
   update: (id: string, data: Record<string, unknown>) => api.patch(`/rfps/${id}`, data),
   delete: (id: string) => api.delete(`/rfps/${id}`),
   analyze: (id: string) => api.post(`/rfps/${id}/analyze`),
+  generateDeck: (id: string, templateFile?: File) => {
+    if (templateFile) {
+      const form = new FormData();
+      form.append("template_file", templateFile);
+      return api.post(`/rfps/${id}/generate-deck`, form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+    }
+    return api.post(`/rfps/${id}/generate-deck`);
+  },
+  downloadDeck: (id: string) => api.get(`/rfps/${id}/deck`, { responseType: "blob" }),
 };
 
 export const decisionApi = {

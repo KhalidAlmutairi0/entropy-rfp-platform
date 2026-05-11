@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState } from "react";
+import { useState } from "react";
 import useSWR from "swr";
 import { useRouter } from "next/navigation";
 import { decisionApi, rfpApi } from "@/lib/api";
@@ -15,10 +15,10 @@ import {
 } from "lucide-react";
 import type { Flag } from "@/lib/types";
 
-interface Props { params: Promise<{ id: string }> }
+interface Props { params: { id: string } }
 
 export default function DecisionPage({ params }: Props) {
-  const { id } = use(params);
+  const { id } = params;
   const router = useRouter();
 
   const { data: decision, isLoading, mutate } = useSWR(
@@ -155,6 +155,14 @@ export default function DecisionPage({ params }: Props) {
           </div>
         )}
 
+        {/* BD person attribution */}
+        {rfp?.uploadedByName && (
+          <div className="mt-4 pt-4 border-t border-neutral-100 flex items-center gap-2 text-caption text-neutral-500">
+            <span className="font-medium text-neutral-600">فحص بواسطة:</span>
+            <span className="font-semibold text-neutral-800">{rfp.uploadedByName}</span>
+          </div>
+        )}
+
         {/* Confidence + actions */}
         <div className="flex items-center justify-between mt-6 pt-4 border-t border-neutral-100 flex-wrap gap-3">
           <ConfidenceMeter value={decision.confidence} />
@@ -175,13 +183,22 @@ export default function DecisionPage({ params }: Props) {
               تعديل القرار
             </button>
             {decision.decisionType !== "NO_GO" && (
-              <button
-                onClick={() => router.push(`/rfps/${id}/proposal`)}
-                className="h-8 px-4 flex items-center gap-1.5 rounded-md bg-primary-600 text-white text-body-sm font-semibold hover:bg-primary-700 transition-colors"
-              >
-                <FileText className="h-3.5 w-3.5" aria-hidden />
-                إعداد المقترح
-              </button>
+              <>
+                <button
+                  onClick={() => router.push(`/rfps/${id}/deck`)}
+                  className="h-8 px-4 flex items-center gap-1.5 rounded-md border border-primary-300 text-primary-700 text-body-sm font-semibold hover:bg-primary-50 transition-colors"
+                >
+                  <FileText className="h-3.5 w-3.5" aria-hidden />
+                  توليد العرض
+                </button>
+                <button
+                  onClick={() => router.push(`/rfps/${id}/proposal`)}
+                  className="h-8 px-4 flex items-center gap-1.5 rounded-md bg-primary-600 text-white text-body-sm font-semibold hover:bg-primary-700 transition-colors"
+                >
+                  <FileText className="h-3.5 w-3.5" aria-hidden />
+                  إعداد المقترح
+                </button>
+              </>
             )}
           </div>
         </div>

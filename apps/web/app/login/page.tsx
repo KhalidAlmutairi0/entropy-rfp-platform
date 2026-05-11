@@ -24,7 +24,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [ssoLoading, setSSOLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showFallback, setShowFallback] = useState(false);
+  const [showFallback, setShowFallback] = useState(true); // Email/password shown by default
 
   // Fix B-F1: MFA state
   const [mfaRequired, setMfaRequired] = useState(false);
@@ -208,87 +208,62 @@ export default function LoginPage() {
             </div>
           ) : (
             <>
-              {/* SSO button */}
-              <button
-                onClick={handleSSO}
-                disabled={ssoLoading}
-                className={cn(
-                  "w-full flex items-center justify-center gap-2 h-10 rounded-lg bg-primary-600 text-white font-semibold text-body-sm",
-                  "hover:bg-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-2",
-                  "transition-colors disabled:opacity-60"
-                )}
-              >
-                {ssoLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : t.sso}
-              </button>
-
-              {/* Divider */}
-              <div className="flex items-center gap-3">
-                <div className="flex-1 h-px bg-neutral-200" />
-                <span className="text-caption text-neutral-400">{t.or}</span>
-                <div className="flex-1 h-px bg-neutral-200" />
-              </div>
-
-              {/* Toggle admin fallback */}
-              {!showFallback ? (
-                <div className="space-y-2">
-                  <button
-                    onClick={() => setShowFallback(true)}
-                    className="w-full text-caption text-neutral-400 hover:text-neutral-600 underline text-center"
-                  >
-                    {t.advanced}
-                  </button>
-                  <Link
-                    href="/signup"
-                    className="block w-full text-caption text-neutral-500 hover:text-neutral-700 underline text-center"
-                  >
-                    {t.create}
-                  </Link>
-                </div>
-              ) : (
-                <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
-                  <div>
-                    <label htmlFor="email" className="block text-body-sm font-medium text-neutral-700 mb-1">{t.email}</label>
-                    <input
-                      id="email"
-                      type="email"
-                      autoComplete="email"
-                      {...register("email")}
-                      className={cn(
-                        "w-full h-9 rounded-md border px-3 text-body-sm focus:outline-none focus:ring-2 focus:ring-primary-600 focus:border-transparent",
-                        errors.email ? "border-danger-500" : "border-neutral-300"
-                      )}
-                    />
-                    {errors.email && <p className="text-caption text-danger-600 mt-1">{errors.email.message}</p>}
-                  </div>
-
-                  <div>
-                    <label htmlFor="password" className="block text-body-sm font-medium text-neutral-700 mb-1">{t.password}</label>
-                    <input
-                      id="password"
-                      type="password"
-                      autoComplete="current-password"
-                      {...register("password")}
-                      className={cn(
-                        "w-full h-9 rounded-md border px-3 text-body-sm focus:outline-none focus:ring-2 focus:ring-primary-600 focus:border-transparent",
-                        errors.password ? "border-danger-500" : "border-neutral-300"
-                      )}
-                    />
-                    {errors.password && <p className="text-caption text-danger-600 mt-1">{errors.password.message}</p>}
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={loading}
+              {/* Email / password form — shown by default */}
+              <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
+                <div>
+                  <label htmlFor="email" className="block text-body-sm font-medium text-neutral-700 mb-1">{t.email}</label>
+                  <input
+                    id="email"
+                    type="email"
+                    autoComplete="email"
+                    {...register("email")}
                     className={cn(
-                      "w-full flex items-center justify-center gap-2 h-9 rounded-md bg-primary-600 text-white font-semibold text-body-sm",
-                      "hover:bg-primary-700 transition-colors disabled:opacity-60"
+                      "w-full h-9 rounded-md border px-3 text-body-sm focus:outline-none focus:ring-2 focus:ring-primary-600 focus:border-transparent",
+                      errors.email ? "border-danger-500" : "border-neutral-300"
                     )}
-                  >
-                    {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {t.signin}
-                  </button>
-                </form>
-              )}
+                  />
+                  {errors.email && <p className="text-caption text-danger-500 mt-1">{errors.email.message}</p>}
+                </div>
+
+                <div>
+                  <label htmlFor="password" className="block text-body-sm font-medium text-neutral-700 mb-1">{t.password}</label>
+                  <input
+                    id="password"
+                    type="password"
+                    autoComplete="current-password"
+                    {...register("password")}
+                    className={cn(
+                      "w-full h-9 rounded-md border px-3 text-body-sm focus:outline-none focus:ring-2 focus:ring-primary-600 focus:border-transparent",
+                      errors.password ? "border-danger-500" : "border-neutral-300"
+                    )}
+                  />
+                  {errors.password && <p className="text-caption text-danger-500 mt-1">{errors.password.message}</p>}
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className={cn(
+                    "w-full flex items-center justify-center gap-2 h-9 rounded-md bg-primary-600 text-white font-semibold text-body-sm",
+                    "hover:bg-primary-700 transition-colors disabled:opacity-60"
+                  )}
+                >
+                  {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {t.signin}
+                </button>
+              </form>
+
+              {/* SSO — secondary option */}
+              <div className="pt-1">
+                <button
+                  onClick={handleSSO}
+                  disabled={ssoLoading}
+                  className="w-full text-caption text-neutral-400 hover:text-neutral-600 underline text-center disabled:opacity-50"
+                >
+                  {ssoLoading ? <Loader2 className="h-3 w-3 animate-spin inline me-1" /> : null}
+                  {t.sso}
+                </button>
+              </div>
             </>
           )}
         </div>

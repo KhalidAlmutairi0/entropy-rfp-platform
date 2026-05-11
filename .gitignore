@@ -47,3 +47,19 @@ logs/
 
 # Test artifacts
 test_results/
+
+# Dev database WAL files
+*.db-shm
+*.db-wal
+
+# Local dev file storage (uploaded RFP documents)
+apps/api/dev_storage/
+
+# Test artifacts
+E2E_TEST_REPORT.txt
+QUICK_REFERENCE.txt
+SUMMARY.txt
+TESTING_COMPLETE_REPORT.md
+TEST_ARTIFACTS_INDEX.txt
+e2e_test.py
+apps/api/verify.py

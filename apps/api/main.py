@@ -53,6 +53,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if settings.is_development:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            # Enable WAL mode for SQLite — allows concurrent readers + writer,
+            # preventing "database is locked" errors from background async tasks.
+            if settings.database_url.startswith("sqlite"):
+                await conn.execute(__import__("sqlalchemy").text("PRAGMA journal_mode=WAL"))
+                await conn.execute(__import__("sqlalchemy").text("PRAGMA busy_timeout=30000"))
     yield
     logger.info("Shutting down Entropy RFP Platform API")
     await engine.dispose()

@@ -1,12 +1,12 @@
 "use client";
 
-import { use, useState } from "react";
+import { useState } from "react";
 import useSWR from "swr";
 import { proposalApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Download, FileText, File, CheckCircle2, Loader2, AlertCircle, Trophy, XCircle } from "lucide-react";
 
-interface Props { params: Promise<{ id: string }> }
+interface Props { params: { id: string } }
 
 const OUTCOMES = [
   { value: "WON",       label: "فوز",            icon: Trophy,    color: "text-success-600 bg-success-50 border-success-200" },
@@ -16,7 +16,7 @@ const OUTCOMES = [
 ] as const;
 
 export default function ExportPage({ params }: Props) {
-  const { id } = use(params);
+  const { id } = params;
   const [exportFormat, setExportFormat] = useState<"docx" | "pdf">("docx");
   const [exportLang, setExportLang] = useState<"ar" | "en" | "both">("ar");
   const [exporting, setExporting] = useState(false);

@@ -13,7 +13,7 @@ psycopg2-binary==2.9.9
 
 # Data validation
 pydantic[email]==2.7.0
-pydantic-settings==2.2.1
+pydantic-settings>=2.4.0
 
 # Auth
 python-jose[cryptography]==3.3.0
@@ -47,11 +47,15 @@ tiktoken==0.7.0
 pdfplumber==0.11.0
 PyPDF2==3.0.1
 python-docx==1.1.2
+python-pptx==1.0.2
 Pillow==10.3.0
 pytesseract==0.3.10
 azure-ai-formrecognizer==3.3.3
 langdetect==1.0.9
 chardet==5.2.0
+
+# Deck generation pipeline
+docling==2.14.0
 
 # Observability
 opentelemetry-sdk==1.24.0

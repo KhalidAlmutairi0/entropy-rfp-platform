@@ -3,7 +3,7 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -70,6 +70,7 @@ async def mark_read(
         select(Notification).where(Notification.id == notification_id, Notification.user_id == current_user.id)
     )
     notif = result.scalar_one_or_none()
-    if notif:
-        notif.is_read = True
+    if not notif:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
+    notif.is_read = True
     return {"message": "Marked as read"}

@@ -112,11 +112,16 @@ async def create_template(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission(Permission.MANAGE_TEMPLATES)),
 ):
+    # supported_languages is stored as comma-separated string (e.g. "AR,EN")
+    langs_str = ",".join(data.supported_languages) if data.supported_languages else "AR"
+    # project_types_json is stored as a JSON array string
+    proj_json = _json.dumps(data.project_types) if data.project_types is not None else None
+
     template = Template(
         name_ar=data.name_ar,
         name_en=data.name_en,
-        supported_languages=data.supported_languages,
-        project_types_json=data.project_types,
+        supported_languages=langs_str,
+        project_types_json=proj_json,
     )
     db.add(template)
     await db.flush()
