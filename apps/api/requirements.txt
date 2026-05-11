@@ -37,10 +37,6 @@ aiofiles==23.2.1
 anthropic==0.28.0
 openai==1.30.0
 cohere==5.5.0
-langchain==0.2.1
-langchain-anthropic==0.1.15
-langchain-community==0.2.1
-langgraph==0.0.64
 tiktoken==0.7.0
 
 # Document processing

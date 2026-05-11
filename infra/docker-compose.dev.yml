@@ -2,6 +2,7 @@ version: '3.9'
 
 # Dev infrastructure only — no Postgres (uses SQLite), no API/web containers.
 # Run the API and frontend manually for hot reload.
+# python-pptx is now used directly — Node.js deck-renderer no longer needed.
 #
 # Usage:
 #   docker compose -f docker-compose.dev.yml up -d

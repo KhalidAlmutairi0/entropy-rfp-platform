@@ -46,11 +46,11 @@ class Settings(BaseSettings):
     anthropic_foundry_api_key: str = ""
     anthropic_foundry_base_url: str = ""   # Azure AI Foundry endpoint
     openai_api_key: str = ""
-    primary_llm_model: str = "claude-opus-4-6"
-    secondary_llm_model: str = "gpt-4o"
+    primary_llm_model: str = "claude-opus-4-20250514"
+    secondary_llm_model: str = "claude-sonnet-4-20250514"
     cohere_api_key: str = ""
-    embedding_provider: str = "ollama"  # ollama | cohere
-    embedding_model: str = "nomic-embed-text"
+    embedding_provider: str = "openai"  # openai | cohere | ollama
+    embedding_model: str = "text-embedding-3-large"
     ollama_api_url: str = "http://localhost:11434"
     llm_provider: str = "anthropic"  # anthropic | ollama
     ollama_llm_model: str = "llama3.1:8b"

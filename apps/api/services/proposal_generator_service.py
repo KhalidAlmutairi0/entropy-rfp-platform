@@ -186,7 +186,7 @@ async def _complete_anthropic(system_prompt: str, user_prompt: str) -> str:
 
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
     response = await client.messages.create(
-        model=settings.primary_llm_model,
+        model=settings.secondary_llm_model,
         max_tokens=1800,
         temperature=0.3,
         system=system_prompt,
@@ -201,7 +201,7 @@ async def _stream_anthropic(system_prompt: str, user_prompt: str) -> AsyncGenera
 
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
     async with client.messages.stream(
-        model=settings.primary_llm_model,
+        model=settings.secondary_llm_model,
         max_tokens=4096,
         messages=[{"role": "user", "content": user_prompt}],
         system=system_prompt,

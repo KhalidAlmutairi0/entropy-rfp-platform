@@ -1,34 +1,57 @@
-import type { Metadata } from "next";
-import { Inter } from "next/font/google";
-import "./globals.css";
+import type { Metadata, Viewport } from 'next'
+import { Inter, IBM_Plex_Sans_Arabic } from 'next/font/google'
+import { ThemeProvider } from '@/components/providers/theme-provider'
+import { LanguageProvider } from '@/components/providers/language-provider'
+import { AuthProvider } from '@/contexts/auth-context'
+import './globals.css'
 
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
-  display: "swap",
-});
+const inter = Inter({ 
+  subsets: ['latin'],
+  variable: '--font-inter',
+})
+
+const ibmPlexSansArabic = IBM_Plex_Sans_Arabic({ 
+  subsets: ['arabic'],
+  weight: ['400', '500', '600', '700'],
+  variable: '--font-ibm-plex-sans-arabic',
+})
 
 export const metadata: Metadata = {
-  title: "Entropy RFP Intelligence Platform",
-  description: "Internal AI platform for qualifying government RFPs and generating proposals",
-  robots: "noindex, nofollow", // Internal tool — never index
-};
+  title: 'Entropy - RFP Intelligence Platform',
+  description: 'Intelligent RFP processing and proposal management platform',
+  generator: 'Entropy',
+}
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export const viewport: Viewport = {
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#FFFFFF' },
+    { media: '(prefers-color-scheme: dark)', color: '#0F172A' },
+  ],
+  width: 'device-width',
+  initialScale: 1,
+}
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode
+}>) {
   return (
-    <html lang="ar" dir="rtl" suppressHydrationWarning>
-      <head>
-        {/* IBM Plex Sans Arabic */}
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap"
-          rel="stylesheet"
-        />
-      </head>
-      <body className={`${inter.variable} font-sans bg-[--color-bg] text-[--color-text]`}>
-        {children}
+    <html lang="en" suppressHydrationWarning>
+      <body className={`${inter.variable} ${ibmPlexSansArabic.variable} font-sans antialiased`}>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <LanguageProvider>
+            <AuthProvider>
+              {children}
+            </AuthProvider>
+          </LanguageProvider>
+        </ThemeProvider>
       </body>
     </html>
-  );
+  )
 }

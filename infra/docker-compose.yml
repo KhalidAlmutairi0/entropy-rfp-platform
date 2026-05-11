@@ -94,6 +94,9 @@ services:
       - api
     restart: unless-stopped
 
+  # python-pptx is now used directly — Node.js deck-renderer no longer needed
+  # deck-renderer: (removed)
+
   # Celery worker for async tasks (ingestion, indexing)
   worker:
     build:

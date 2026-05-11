@@ -1,9 +1,9 @@
-"""Deck generation pipeline: Upload (.pptx/.docx) → Docling → Structured JSON → Claude → PptxGenJS → .pptx
+"""Deck generation pipeline: Upload (.pptx/.docx) → Docling → Structured JSON → Claude → python-pptx → .pptx
 
 Pipeline stages (each raises RuntimeError with a clear prefix on failure):
   Stage 1 — Parse:   Docling (preferred) or python-pptx/python-docx fallback
-  Stage 2 — Claude:  claude-opus-4-6 generates slides from structured JSON + RFP content
-  Stage 3 — Render:  Node.js PptxGenJS renders the .pptx from Claude's slide JSON
+  Stage 2 — Claude:  Claude generates slides from structured JSON + RFP content
+  Stage 3 — Render:  python-pptx renders the final .pptx binary (Node.js renderer removed)
 """
 
 import asyncio
@@ -22,8 +22,6 @@ logger = structlog.get_logger()
 
 # Thread pool for running synchronous Docling / python-pptx calls without blocking the event loop
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="docling")
-
-_RENDERER_PATH = Path(__file__).parent.parent.parent / "deck-renderer" / "index.js"
 
 # ── Structured JSON schema (shared between stages) ────────────────────────────
 #
@@ -284,7 +282,7 @@ STRICT rules:
 
 
 async def call_claude_for_slides(structured_json: dict, rfp_text: str, rfp_title: str) -> list[dict]:
-    """Send the structured template JSON + RFP content to Claude claude-opus-4-6.
+    """Send the structured template JSON + RFP content to Claude claude-opus-4-20250514.
 
     Returns a list of slide dicts matching the structured JSON schema.
 
@@ -308,7 +306,7 @@ async def call_claude_for_slides(structured_json: dict, rfp_text: str, rfp_title
     )
 
     response = await client.messages.create(
-        model="claude-opus-4-6",
+        model=settings.primary_llm_model,
         max_tokens=8192,
         system=_CLAUDE_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_message}],
@@ -343,58 +341,93 @@ async def call_claude_for_slides(structured_json: dict, rfp_text: str, rfp_title
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Stage 3 — Render .pptx with PptxGenJS (Node.js subprocess)
+# Stage 3 — Render .pptx with python-pptx
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def render_with_pptxgenjs(slides: list[dict], global_theme: dict) -> bytes:
-    """Invoke the Node.js PptxGenJS renderer by writing JSON to its stdin.
+async def render_slides(slide_json: dict, template_bytes: bytes | None = None) -> bytes:
+    """Stage 3 — Render slide JSON to .pptx using python-pptx."""
 
-    The renderer (apps/deck-renderer/index.js) reads JSON from stdin and writes
-    the .pptx binary to stdout.
+    def hex_to_rgb(hex_str: str):
+        from pptx.dml.color import RGBColor
+        h = hex_str.lstrip("#")
+        return RGBColor(int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
 
-    Raises:
-        FileNotFoundError: renderer script not found.
-        RuntimeError: renderer process failed or timed out.
-    """
-    if not _RENDERER_PATH.exists():
-        raise FileNotFoundError(
-            f"PptxGenJS renderer not found at {_RENDERER_PATH}. "
-            "Run: cd apps/deck-renderer && npm install"
-        )
+    loop = asyncio.get_event_loop()
 
-    payload = json.dumps(
-        {"slides": slides, "global_theme": global_theme},
-        ensure_ascii=False,
-    ).encode("utf-8")
+    def _build_pptx() -> bytes:
+        from pptx import Presentation
+        from pptx.util import Inches, Pt
 
-    proc = await asyncio.create_subprocess_exec(
-        "node",
-        str(_RENDERER_PATH),
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+        if template_bytes:
+            prs = Presentation(io.BytesIO(template_bytes))
+            xml_slides = prs.slides._sldIdLst
+            for _ in range(len(prs.slides)):
+                xml_slides.remove(xml_slides[0])
+        else:
+            prs = Presentation()
+            prs.slide_width = Inches(13.33)
+            prs.slide_height = Inches(7.5)
 
-    try:
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(input=payload),
-            timeout=120.0,
-        )
-    except asyncio.TimeoutError as exc:
-        proc.kill()
-        await proc.wait()
-        raise RuntimeError("PptxGenJS renderer timed out after 120 seconds") from exc
+        global_theme = slide_json.get("global_theme", {})
+        slides_data = slide_json.get("slides", [])
 
-    if proc.returncode != 0:
-        err_text = stderr.decode("utf-8", errors="replace")
-        raise RuntimeError(
-            f"PptxGenJS renderer exited with code {proc.returncode}: {err_text[:1000]}"
-        )
+        for slide_data in slides_data:
+            theme = slide_data.get("theme", global_theme)
+            bg_color = hex_to_rgb(theme.get("bg", "#FFFFFF"))
+            accent_color = hex_to_rgb(theme.get("accent", "#0070f3"))
+            font_name = global_theme.get("font", "Calibri")
+            title_text = slide_data.get("title", "")
+            body_items = slide_data.get("body", [])
+            notes_text = slide_data.get("notes", "")
 
-    if not stdout:
-        raise RuntimeError("PptxGenJS renderer produced empty output")
+            blank_layout = prs.slide_layouts[6]
+            slide = prs.slides.add_slide(blank_layout)
 
-    return stdout
+            bg = slide.background
+            fill = bg.fill
+            fill.solid()
+            fill.fore_color.rgb = bg_color
+
+            slide_w = prs.slide_width
+            slide_h = prs.slide_height
+
+            if title_text:
+                txBox = slide.shapes.add_textbox(
+                    Inches(0.5), Inches(0.3), slide_w - Inches(1), Inches(1.2)
+                )
+                tf = txBox.text_frame
+                tf.word_wrap = True
+                p = tf.paragraphs[0]
+                run = p.add_run()
+                run.text = title_text
+                run.font.bold = True
+                run.font.size = Pt(28)
+                run.font.color.rgb = accent_color
+                run.font.name = font_name
+
+            if body_items:
+                top = Inches(1.7) if title_text else Inches(0.5)
+                body_box = slide.shapes.add_textbox(
+                    Inches(0.5), top, slide_w - Inches(1), slide_h - top - Inches(0.5)
+                )
+                tf = body_box.text_frame
+                tf.word_wrap = True
+                for i, item in enumerate(body_items):
+                    p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+                    p.space_before = Pt(4)
+                    run = p.add_run()
+                    run.text = f"• {item}" if not item.startswith("•") else item
+                    run.font.size = Pt(16)
+                    run.font.name = font_name
+
+            if notes_text:
+                slide.notes_slide.notes_text_frame.text = notes_text
+
+        output = io.BytesIO()
+        prs.save(output)
+        return output.getvalue()
+
+    return await loop.run_in_executor(_executor, _build_pptx)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -412,7 +445,7 @@ async def generate_deck_pipeline(
 
     Stages:
       1. parse_template()       — Docling/python-pptx → structured JSON
-      2. call_claude_for_slides() — Claude claude-opus-4-6 → slide JSON
+      2. call_claude_for_slides() — Claude claude-opus-4-20250514 → slide JSON
       3. render_with_pptxgenjs() — Node.js PptxGenJS → .pptx bytes
 
     Each stage raises RuntimeError with a '[Stage N — Name]' prefix so the caller
@@ -429,7 +462,7 @@ async def generate_deck_pipeline(
     logger.info("deck_pipeline: template parsed", rfp_id=rfp_id, slides=slide_count)
 
     # Stage 2
-    logger.info("deck_pipeline: calling Claude", rfp_id=rfp_id, model="claude-opus-4-6")
+    logger.info("deck_pipeline: calling Claude", rfp_id=rfp_id, model=settings.primary_llm_model)
     try:
         slides = await call_claude_for_slides(structured_json, rfp_text, rfp_title)
     except Exception as exc:
@@ -438,9 +471,12 @@ async def generate_deck_pipeline(
     logger.info("deck_pipeline: slides generated", rfp_id=rfp_id, slides=len(slides))
 
     # Stage 3
-    logger.info("deck_pipeline: rendering with PptxGenJS", rfp_id=rfp_id)
+    logger.info("deck_pipeline: rendering with python-pptx", rfp_id=rfp_id)
     try:
-        pptx_bytes = await render_with_pptxgenjs(slides, structured_json.get("global_theme", {}))
+        pptx_bytes = await render_slides(
+            {"slides": slides, "global_theme": structured_json.get("global_theme", {})},
+            template_bytes,
+        )
     except Exception as exc:
         raise RuntimeError(f"[Stage 3 — Render] {exc}") from exc
 

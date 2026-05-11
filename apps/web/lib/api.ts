@@ -1,150 +1,311 @@
-import axios, { AxiosError, type AxiosInstance } from "axios";
-import { removeToken } from "./auth";
+import type {
+  AuthResponse, User, RFP, PaginatedRFPs, Decision, Proposal,
+  KnowledgeDoc, KnowledgeStats, Template, Notification,
+  PaginatedUsers, UserListItem, PaginatedAudit, KpiData, ChartPoint,
+} from './types'
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
 
-export const api: AxiosInstance = axios.create({
-  baseURL: API_BASE,
-  timeout: 30000,
-  headers: { "Content-Type": "application/json" },
-});
+// ── Token helpers ─────────────────────────────────────────────────────────────
 
-// Attach JWT token on every request
-api.interceptors.request.use((config) => {
-  if (typeof window !== "undefined") {
-    const token = localStorage.getItem("access_token");
-    if (token) config.headers.Authorization = `Bearer ${token}`;
+export function getToken(): string | null {
+  if (typeof window === 'undefined') return null
+  return localStorage.getItem('entropy_token')
+}
+
+export function setToken(token: string) {
+  localStorage.setItem('entropy_token', token)
+}
+
+export function clearToken() {
+  localStorage.removeItem('entropy_token')
+  localStorage.removeItem('entropy_user')
+}
+
+// ── Core fetch ────────────────────────────────────────────────────────────────
+
+async function request<T>(
+  path: string,
+  options: RequestInit = {},
+  skipAuth = false,
+): Promise<T> {
+  let token: string | null = null
+  const headers: Record<string, string> = {
+    ...(options.headers as Record<string, string>),
   }
-  return config;
-});
 
-// Handle 401 globally → redirect to login
-api.interceptors.response.use(
-  (response) => response,
-  (error: AxiosError) => {
-    if (error.response?.status === 401 && typeof window !== "undefined") {
-      removeToken();
-      window.location.href = "/login";
-    }
-    return Promise.reject(error);
+  if (!skipAuth) {
+    token = getToken()
+    if (token) headers['Authorization'] = `Bearer ${token}`
   }
-);
 
-// ── Typed API helpers ─────────────────────────────────────────────────────────
+  if (!(options.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json'
+  }
 
-export const authApi = {
+  const res = await fetch(`${BASE}${path}`, { ...options, headers })
+
+  if (res.status === 401) {
+    clearToken()
+    throw new Error('Unauthorized')
+  }
+
+  if (!res.ok) {
+    let detail = res.statusText
+    try {
+      const body = await res.json()
+      detail = body.detail ?? JSON.stringify(body)
+    } catch {}
+    throw new Error(detail)
+  }
+
+  if (res.status === 204) return undefined as T
+  return res.json() as Promise<T>
+}
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+export const auth = {
   login: (email: string, password: string) =>
-    api.post<{ access_token?: string; expires_in?: number; mfa_required?: boolean; session_token?: string }>("/auth/login", { email, password }),
+    request<AuthResponse>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }, true),
+
   signup: (name: string, email: string, password: string) =>
-    api.post<{ access_token: string; expires_in: number }>("/auth/signup", { name, email, password }),
-  verifyMfa: (sessionToken: string, code: string) =>
-    api.post<{ access_token: string; expires_in: number }>("/auth/mfa/verify", { session_token: sessionToken, code }),
-  exchangeSsoCode: (code: string) =>
-    api.post<{ access_token: string; expires_in: number }>("/auth/sso/exchange", { code }),
-  refresh: () =>
-    api.post<{ access_token: string; expires_in: number }>("/auth/refresh"),
-  logout: () => api.post("/auth/logout"),
-};
+    request<AuthResponse>('/auth/signup', {
+      method: 'POST',
+      body: JSON.stringify({ name, email, password }),
+    }, true),
 
-export const rfpApi = {
-  list: (params?: Record<string, unknown>) => api.get("/rfps", { params }),
-  upload: (formData: FormData) =>
-    api.post("/rfps/upload", formData, { headers: { "Content-Type": "multipart/form-data" }, timeout: 120000 }),
-  get: (id: string) => api.get(`/rfps/${id}`),
-  update: (id: string, data: Record<string, unknown>) => api.patch(`/rfps/${id}`, data),
-  delete: (id: string) => api.delete(`/rfps/${id}`),
-  analyze: (id: string) => api.post(`/rfps/${id}/analyze`),
-  generateDeck: (id: string, templateFile?: File) => {
-    if (templateFile) {
-      const form = new FormData();
-      form.append("template_file", templateFile);
-      return api.post(`/rfps/${id}/generate-deck`, form, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-    }
-    return api.post(`/rfps/${id}/generate-deck`);
+  me: () => request<User>('/auth/me'),
+
+  updateMe: (data: {
+    name?: string
+    title?: string
+    phone?: string
+    notification_email?: boolean
+    notification_slack?: boolean
+    preferred_language?: string
+    preferred_timezone?: string
+  }) => request<User>('/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),
+
+  refresh: () => request<AuthResponse>('/auth/refresh', { method: 'POST' }),
+
+  logout: () => request<void>('/auth/logout', { method: 'POST' }),
+}
+
+// ── RFPs ──────────────────────────────────────────────────────────────────────
+
+// The backend returns flags split into redFlags/greenFlags and scores nested under breakdown.
+// Normalize to the flat Decision shape the frontend expects.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizeDecision(raw: any): Decision {
+  const breakdown = raw.breakdown ?? {}
+  return {
+    ...raw,
+    flags: [...(raw.redFlags ?? []), ...(raw.greenFlags ?? [])],
+    technicalFit: breakdown.technicalFit ?? 0,
+    businessFit: breakdown.businessFit ?? 0,
+    riskPenalty: breakdown.riskPenalty ?? 0,
+    capabilityMatchScore: breakdown.capabilityMatch,
+  } as Decision
+}
+
+export const rfps = {
+  list: (params?: { page?: number; pageSize?: number; search?: string; status?: string }) => {
+    const q = new URLSearchParams()
+    if (params?.page) q.set('page', String(params.page))
+    if (params?.pageSize) q.set('page_size', String(params.pageSize))
+    if (params?.search) q.set('search', params.search)
+    if (params?.status) q.set('status', params.status)
+    return request<PaginatedRFPs>(`/rfps?${q}`)
   },
-  downloadDeck: (id: string) => api.get(`/rfps/${id}/deck`, { responseType: "blob" }),
-};
 
-export const decisionApi = {
-  get: (rfpId: string) => api.get(`/rfps/${rfpId}/decision`),
-  override: (rfpId: string, newDecision: string, reason: string) =>
-    api.post(`/rfps/${rfpId}/decision/override`, { new_decision: newDecision, reason }),
-  adjustWeights: (rfpId: string, weights: { technical_weight: number; business_weight: number; risk_weight: number }) =>
-    api.put(`/rfps/${rfpId}/decision/weights`, weights),
-  addEvidence: (rfpId: string, data: Record<string, unknown>) =>
-    api.post(`/rfps/${rfpId}/decision/evidence`, data),
-};
+  get: (id: string) => request<RFP>(`/rfps/${id}`),
 
-export interface SectionDef {
-  title_en: string;
-  title_ar: string;
-  is_locked?: boolean;
-}
-
-export interface AgendaSuggestion {
-  sections: SectionDef[];
-  basis: "template" | "rfp_analysis" | "default";
-  matched_capabilities: string[];
-}
-
-export interface DirectProposalCreate {
-  title: string;
-  description?: string;
-  template_id?: string;
-  custom_sections?: SectionDef[];
-  use_ai_agenda?: boolean;
-}
-
-export const proposalApi = {
-  create: (rfpId: string, data?: { template_id?: string; mode?: string; custom_sections?: SectionDef[]; use_ai_agenda?: boolean }) =>
-    api.post(`/rfps/${rfpId}/proposal`, data ?? {}),
-  get: (rfpId: string) => api.get(`/rfps/${rfpId}/proposal`),
-  suggestAgenda: (rfpId: string) => api.get<AgendaSuggestion>(`/rfps/${rfpId}/proposal/suggest-agenda`),
-  createDirect: (data: DirectProposalCreate) => api.post("/proposals/direct", data),
-  updateSection: (rfpId: string, sectionId: string, data: Record<string, unknown>) =>
-    api.put(`/rfps/${rfpId}/proposal/sections/${sectionId}`, data),
-  export: (rfpId: string, config: Record<string, unknown>) =>
-    api.post(`/rfps/${rfpId}/proposal/export`, config),
-  updateOutcome: (rfpId: string, outcome: string, notes?: string) =>
-    api.patch(`/rfps/${rfpId}/proposal/outcome`, { outcome, notes }),
-};
-
-export const knowledgeApi = {
-  list: (params?: Record<string, unknown>) => api.get("/knowledge", { params }),
   upload: (formData: FormData) =>
-    api.post("/knowledge/upload", formData, { headers: { "Content-Type": "multipart/form-data" } }),
-  stats: () => api.get("/knowledge/stats"),
-  reindex: (id: string) => api.post(`/knowledge/${id}/reindex`),
-};
+    request<RFP>('/rfps/upload', { method: 'POST', body: formData }),
 
-export const notificationApi = {
-  list: (params?: Record<string, unknown>) => api.get("/notifications", { params }),
-  markAllRead: () => api.patch("/notifications/read-all"),
-  markRead: (id: string) => api.patch(`/notifications/${id}/read`),
-};
+  update: (id: string, data: Partial<Pick<RFP, 'titleAr' | 'titleEn' | 'agency' | 'tenderNumber' | 'deadline' | 'estimatedValueSar'>>) =>
+    request<RFP>(`/rfps/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
-export const analyticsApi = {
-  kpis: (days?: number) => api.get<{
-    period_days: number;
-    pipeline: { active: number; by_status: Record<string, number> };
-    decisions: { total: number; go: number; no_go: number; review: number };
-    outcomes: { won: number; lost: number; win_rate: number };
-  }>("/analytics/kpis", { params: { days } }),
-  chartWinRateByType: () => api.get("/analytics/charts/win-rate-by-project-type"),
-  chartDecisionsOverTime: (days?: number) => api.get("/analytics/charts/decisions-over-time", { params: { days } }),
-};
+  delete: (id: string) =>
+    request<void>(`/rfps/${id}`, { method: 'DELETE' }),
 
-export const usersApi = {
-  list: (params?: Record<string, unknown>) => api.get("/users", { params }),
-  create: (data: Record<string, unknown>) => api.post("/users", data),
-  get: (id: string) => api.get(`/users/${id}`),
-  updateRole: (id: string, role: string) => api.patch(`/users/${id}/role`, { role }),
-  deactivate: (id: string) => api.patch(`/users/${id}/deactivate`),
-};
+  analyze: (id: string) =>
+    request<{ taskId: string }>(`/rfps/${id}/analyze`, { method: 'POST' }),
 
-export const auditApi = {
-  list: (params?: Record<string, unknown>) => api.get("/audit", { params }),
-  exportCsv: () => api.get("/audit/export", { responseType: "blob" }),
-};
+  decision: (id: string) =>
+    request<Record<string, unknown>>(`/rfps/${id}/decision`).then(normalizeDecision),
+
+  overrideDecision: (id: string, decisionType: string, reason?: string) =>
+    request<Record<string, unknown>>(`/rfps/${id}/decision/override`, {
+      method: 'POST',
+      body: JSON.stringify({ decision_type: decisionType, reason }),
+    }).then(normalizeDecision),
+
+  suggestAgenda: (id: string) =>
+    request<{ sections: unknown[]; basis: string }>(`/rfps/${id}/suggest-agenda`),
+
+  createProposal: (id: string, mode?: string) =>
+    request<Proposal>(`/rfps/${id}/proposal`, {
+      method: 'POST',
+      body: JSON.stringify({ mode: mode ?? 'AI', use_ai_agenda: true }),
+    }),
+
+  getProposal: (id: string) => request<Proposal>(`/rfps/${id}/proposal`),
+
+  updateOutcome: (id: string, outcome: string, notes?: string) =>
+    request<Proposal>(`/rfps/${id}/proposal/outcome`, {
+      method: 'PATCH',
+      body: JSON.stringify({ outcome, notes }),
+    }),
+
+  generateDeck: (id: string) =>
+    request<{ taskId: string; status: string }>(`/rfps/${id}/generate-deck`, { method: 'POST' }),
+
+  downloadDeck: (id: string) =>
+    fetch(`${BASE}/rfps/${id}/deck`, {
+      headers: { Authorization: `Bearer ${getToken()}` },
+    }),
+
+  exportProposal: (id: string, config?: {
+    format?: string
+    include_cover?: boolean
+    include_toc?: boolean
+    include_section_numbers?: boolean
+    include_watermark?: boolean
+    branding?: string
+    language?: string
+  }) =>
+    request<{ taskId: string; status: string }>(`/rfps/${id}/proposal/export`, {
+      method: 'POST',
+      body: JSON.stringify({
+        format: config?.format ?? 'pdf',
+        include_cover: config?.include_cover ?? true,
+        include_toc: config?.include_toc ?? true,
+        include_section_numbers: config?.include_section_numbers ?? true,
+        include_watermark: config?.include_watermark ?? false,
+        branding: config?.branding ?? 'default',
+        language: config?.language ?? 'ar',
+      }),
+    }),
+}
+
+// ── Knowledge Base ────────────────────────────────────────────────────────────
+
+export const knowledge = {
+  list: (params?: { page?: number; pageSize?: number; search?: string }) => {
+    const q = new URLSearchParams()
+    if (params?.page) q.set('page', String(params.page))
+    if (params?.pageSize) q.set('page_size', String(params.pageSize))
+    if (params?.search) q.set('search', params.search)
+    return request<{ items: KnowledgeDoc[]; total: number }>(`/knowledge?${q}`)
+  },
+
+  get: (id: string) => request<KnowledgeDoc>(`/knowledge/${id}`),
+
+  stats: () => request<KnowledgeStats>('/knowledge/stats'),
+
+  upload: (formData: FormData) =>
+    request<KnowledgeDoc>('/knowledge/upload', { method: 'POST', body: formData }),
+
+  reindex: (id: string) =>
+    request<{ message: string }>(`/knowledge/${id}/reindex`, { method: 'POST' }),
+}
+
+// ── Templates ─────────────────────────────────────────────────────────────────
+
+export const templates = {
+  list: () => request<{ items: Template[]; total: number }>('/templates'),
+
+  get: (id: string) => request<Template>(`/templates/${id}`),
+
+  create: (data: {
+    nameAr: string
+    nameEn: string
+    supportedLanguages: string[]
+    projectTypes?: string[]
+    sections?: unknown[]
+  }) => request<Template>('/templates', { method: 'POST', body: JSON.stringify(data) }),
+
+  delete: (id: string) => request<void>(`/templates/${id}`, { method: 'DELETE' }),
+}
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+
+export const notifications = {
+  list: () => request<{ items: Notification[]; total: number }>('/notifications'),
+
+  markRead: (id: string) =>
+    request<{ message: string }>(`/notifications/${id}/read`, { method: 'PATCH' }),
+
+  markAllRead: () =>
+    request<{ message: string }>('/notifications/read-all', { method: 'PATCH' }),
+}
+
+// ── Users ─────────────────────────────────────────────────────────────────────
+
+export const users = {
+  list: (params?: { page?: number; pageSize?: number }) => {
+    const q = new URLSearchParams()
+    if (params?.page) q.set('page', String(params.page))
+    if (params?.pageSize) q.set('page_size', String(params.pageSize))
+    return request<PaginatedUsers>(`/users?${q}`)
+  },
+
+  get: (id: string) => request<UserListItem>(`/users/${id}`),
+
+  create: (data: { name: string; email: string; password: string; role: string; title?: string }) =>
+    request<UserListItem>('/users', { method: 'POST', body: JSON.stringify(data) }),
+
+  updateRole: (id: string, role: string) =>
+    request<UserListItem>(`/users/${id}/role`, { method: 'PATCH', body: JSON.stringify({ role }) }),
+
+  deactivate: (id: string) =>
+    request<UserListItem>(`/users/${id}/deactivate`, { method: 'PATCH' }),
+}
+
+// ── Audit ─────────────────────────────────────────────────────────────────────
+
+export const audit = {
+  list: (params?: { page?: number; pageSize?: number; action?: string }) => {
+    const q = new URLSearchParams()
+    if (params?.page) q.set('page', String(params.page))
+    if (params?.pageSize) q.set('page_size', String(params.pageSize))
+    if (params?.action) q.set('action', params.action)
+    return request<PaginatedAudit>(`/audit?${q}`)
+  },
+
+  exportCsv: () =>
+    fetch(`${BASE}/audit/export/csv`, {
+      headers: { Authorization: `Bearer ${getToken()}` },
+    }),
+}
+
+// ── Analytics ─────────────────────────────────────────────────────────────────
+
+export const analytics = {
+  kpis: (days = 90) => request<KpiData>(`/analytics/kpis?days=${days}`),
+
+  decisionsOverTime: (days = 90) =>
+    request<{ rows: ChartPoint[] }>(`/analytics/charts/decisions-over-time?days=${days}`),
+
+  winRateByType: () =>
+    request<{ rows: unknown[] }>(`/analytics/charts/win-rate-by-type`),
+}
+
+// ── Direct Proposal ───────────────────────────────────────────────────────────
+
+export const proposals = {
+  createDirect: (data: {
+    title: string
+    useAiAgenda?: boolean
+    templateId?: string
+  }) =>
+    request<Proposal>('/proposals/direct', {
+      method: 'POST',
+      body: JSON.stringify({ title: data.title, use_ai_agenda: data.useAiAgenda ?? true, template_id: data.templateId }),
+    }),
+}

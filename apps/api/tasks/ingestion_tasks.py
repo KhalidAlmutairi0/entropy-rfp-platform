@@ -581,13 +581,13 @@ async def _extract_text(content: bytes, mime_type: str, filename: str) -> str:
 def _extract_pdf_sync(content: bytes) -> str:
     import io
     import pdfplumber
-    text_parts = []
+    pages_text = []
     with pdfplumber.open(io.BytesIO(content)) as pdf:
-        for page_num, page in enumerate(pdf.pages, 1):
+        for i, page in enumerate(pdf.pages, start=1):
             text = page.extract_text() or ""
-            # Insert a page marker so _detect_sections can track real page numbers.
-            text_parts.append(f"\x00PAGE:{page_num}\x00\n{text}")
-    return "\n\n".join(text_parts)
+            if text.strip():
+                pages_text.append(f"[PAGE {i}]\n{text}")
+    return "\n\n".join(pages_text)
 
 
 def _extract_docx_sync(content: bytes) -> str:
@@ -615,7 +615,7 @@ def _detect_sections(text: str) -> list[dict]:
     lines = text.split("\n")
     current_section: dict = {"title": "Preamble", "content": "", "page": 1}
     current_page = 1
-    page_marker = re.compile(r"^\x00PAGE:(\d+)\x00$")
+    page_marker = re.compile(r"^\[PAGE (\d+)\]$")
     # [\d٠-٩] covers both ASCII digits and Arabic-Indic numerals
     heading_pattern = re.compile(r"^([\d٠-٩]+\.?[\d٠-٩]*\.?\s+.{5,80}|[أ-ي].{2,50}:)$", re.UNICODE)
     for line in lines:
@@ -938,71 +938,179 @@ def _match_capabilities(sections: list[dict], full_text: str = "") -> dict:
 # ── Claude LLM Deep Analysis ───────────────────────────────────────────────────
 
 _LLM_ANALYSIS_PROMPT = """You are a senior bid qualification analyst for Entropy, a Saudi AI company.
-You receive the full text of a tender (RFP) document and must analyse it deeply to support a Go/No-Go decision.
+You receive the FULL text of a government tender (RFP/كراسة شروط) and must perform an exhaustive forensic analysis.
 
-Extract the following and return ONLY a valid JSON object — no markdown, no explanation:
+The document text contains [PAGE N] markers. You MUST cite the exact page number for every finding.
+Never guess a page number — only cite pages that appear as [PAGE N] markers near the evidence.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ENTROPY COMPANY PROFILE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Company: Entropy — Saudi AI company
+Certifications HELD: NDMO, NDI
+Certifications NOT HELD (cause rejection if required): ISO 27001, ISO 9001, ISO 20000, PCI-DSS, SOC 2, SAMA CSF, NCA ECC, CITC
+
+Core Capabilities:
+- Arabic NLP & NLU (core differentiator — weight 1.5x)
+- Generative AI / LLMs / RAG (weight 1.3x)
+- Agentic AI / Multi-agent systems (weight 1.3x)
+- Data Management & Governance / NDMO compliance (weight 1.2x)
+- Document Intelligence & IDP (weight 1.2x)
+- Computer Vision, Speech Recognition, Arabic ASR (weight 1.0x)
+- Data Engineering, ETL, Data Platforms, Lakehouse (weight 1.0x)
+- Analytics & BI, Dashboards, KPIs (weight 1.0x)
+- Time-Series Forecasting, Anomaly Detection (weight 1.0x)
+- Traditional ML, Deep Learning, MLOps (weight 1.0x)
+
+Technology Partners: Google Cloud / GCP, Microsoft Azure, Oracle, Dataiku, Databricks, Informatica, Groq, Turing
+
+Existing Clients: Ministry of Commerce, Digital Government Authority, Ministry of Interior,
+  Ministry of Industry & Mineral Resources, NHC, King Salman Global Academy,
+  Monsha'at, Royal Saudi Land Forces, Saudi Irrigation Organization
+
+Cannot provide (infrastructure):
+- On-premise GPU clusters (can use client infra or cloud)
+- Physical hardware supply
+- Networking/cabling/infrastructure installation
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+YOUR TASK — EXHAUSTIVE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Analyze EVERY requirement in the document. Do NOT summarize or skip sections.
+For each finding, cite the page number and an exact quote.
+
+Return ONLY a valid JSON object — no markdown, no backticks, no explanation:
 
 {
   "entities": {
     "issuing_agency": "<string | null>",
     "estimated_value_sar": <number | null>,
     "deadline": "<YYYY-MM-DD | null>",
+    "deadline_page": <number | null>,
     "duration_months": <number | null>,
     "deployment_model": "<on_prem | cloud | hybrid | null>",
-    "required_certs": ["<string>"],
+    "required_certs": ["<cert name>"],
     "local_content_pct": <number | null>,
     "data_outside_ksa": <true | false>,
     "requires_security_clearance": <true | false>,
-    "primary_language": "<arabic | english | mixed>"
+    "primary_language": "<arabic | english | mixed>",
+    "project_objectives": ["<objective>"],
+    "key_deliverables": ["<deliverable>"],
+    "technical_requirements": [
+      {
+        "requirement": "<exact requirement text>",
+        "page": <number | null>,
+        "quote": "<exact quote from document>",
+        "entropy_can_fulfill": <true | false | "partial">,
+        "fulfillment_notes": "<how Entropy fulfills or why it cannot>"
+      }
+    ],
+    "mandatory_requirements": [
+      {
+        "requirement": "<exact text>",
+        "page": <number | null>,
+        "quote": "<exact quote>",
+        "is_blocker": <true | false>,
+        "blocker_reason": "<why this blocks us | null>"
+      }
+    ]
   },
+  "advantages": [
+    {
+      "title_en": "<string>",
+      "title_ar": "<string>",
+      "description_en": "<detailed explanation>",
+      "description_ar": "<شرح تفصيلي>",
+      "evidence": "<exact quote>",
+      "page": <number | null>,
+      "impact": "<HIGH | MEDIUM | LOW>"
+    }
+  ],
+  "disadvantages": [
+    {
+      "title_en": "<string>",
+      "title_ar": "<string>",
+      "description_en": "<detailed explanation>",
+      "description_ar": "<شرح تفصيلي>",
+      "evidence": "<exact quote>",
+      "page": <number | null>,
+      "severity": "<CRITICAL | MAJOR | MINOR>",
+      "is_deal_breaker": <true | false>
+    }
+  ],
+  "rejection_reasons": [
+    {
+      "reason_en": "<exact reason>",
+      "reason_ar": "<سبب الرفض>",
+      "evidence": "<exact quote>",
+      "page": <number | null>,
+      "can_mitigate": <true | false>,
+      "mitigation_strategy": "<concrete plan | null>"
+    }
+  ],
+  "acceptance_boosters": [
+    {
+      "booster_en": "<what helps us win>",
+      "booster_ar": "<ما يساعد على القبول>",
+      "evidence": "<what in the RFP makes this relevant>",
+      "page": <number | null>,
+      "action_required": "<what Entropy must do/highlight>"
+    }
+  ],
   "red_flags": [
     {
-      "code": "<string>",
+      "code": "<FLAG_CODE>",
       "severity": "<CRITICAL | MAJOR | MINOR>",
       "title_en": "<string>",
       "title_ar": "<string>",
-      "description_en": "<string>",
-      "evidence": "<direct quote from document | null>"
+      "description_en": "<full explanation>",
+      "description_ar": "<شرح كامل>",
+      "evidence": "<exact quote>",
+      "page": <number | null>
     }
   ],
   "green_flags": [
     {
       "title_en": "<string>",
       "title_ar": "<string>",
-      "description_en": "<string>",
-      "evidence": "<direct quote from document | null>"
+      "description_en": "<full explanation>",
+      "description_ar": "<شرح كامل>",
+      "evidence": "<exact quote>",
+      "page": <number | null>
     }
   ],
   "capability_signals": ["<capability keyword found in document>"],
-  "summary_ar": "<2–3 sentence Arabic summary of the opportunity>",
-  "summary_en": "<2–3 sentence English summary of the opportunity>",
-  "analyst_confidence": <0.0–1.0>
+  "missing_capabilities": ["<what the RFP needs that Entropy lacks>"],
+  "summary_ar": "<3-5 sentence Arabic summary>",
+  "summary_en": "<3-5 sentence English summary>",
+  "analyst_confidence": <0.0-1.0>,
+  "analyst_notes": "<additional observations>"
 }
 
-Entropy's known certifications: NDMO, NDI.
-Entropy's capabilities: Arabic NLP, Generative AI, Agentic AI, Computer Vision, Speech Recognition,
-  Document Intelligence, Data Engineering, Data Platform, Data Management, Analytics & BI,
-  Time-Series Forecasting, Traditional ML.
-Entropy's existing clients: Ministry of Commerce, Digital Government Authority, Ministry of Interior,
-  Ministry of Industry & Mineral Resources, NHC, King Salman Global Academy,
-  Monsha'at, Royal Saudi Land Forces, Saudi Irrigation Organization.
+Red flag codes: MANDATORY_CERT_NOT_HELD, DATA_RESIDENCY_OUTSIDE_KSA, LOCAL_CONTENT_HIGH,
+SECURITY_CLEARANCE_REQUIRED, UNREALISTIC_TIMELINE, PDPL_CONFLICT, CONFLICT_OF_INTEREST,
+BUDGET_TOO_SMALL, SCOPE_MISMATCH, HIGH_COMPETITION_RISK, GPU_INFRA_REQUIRED, SOLE_SOURCE_SPEC.
 
-Red flag codes to use (pick the most appropriate or invent a descriptive code):
-  MANDATORY_CERT_NOT_HELD, DATA_RESIDENCY_OUTSIDE_KSA, LOCAL_CONTENT_HIGH,
-  SECURITY_CLEARANCE_REQUIRED, UNREALISTIC_TIMELINE, PDPL_CONFLICT,
-  CONFLICT_OF_INTEREST, BUDGET_TOO_SMALL, SCOPE_MISMATCH, HIGH_COMPETITION_RISK.
-
-Be conservative: only flag real risks you can cite from the text. Do NOT hallucinate."""
+RULES:
+- Be EXHAUSTIVE — analyze every page, every section, every requirement
+- technical_requirements and mandatory_requirements must be COMPLETE — include ALL requirements found
+- advantages and disadvantages must each have at least 3 items if they exist
+- rejection_reasons must list EVERY reason that could cause rejection, even minor ones
+- Only cite evidence you can directly quote from [PAGE N] marked text
+- Do NOT fabricate capabilities or certifications Entropy doesn't have
+"""
 
 
 async def _llm_analyze(all_text: str) -> dict:
-    """Send the full document text to Claude claude-opus-4-6 for deep semantic analysis.
+    """Send the full document text to Claude for deep forensic analysis.
 
-    Returns a dict with keys: entities, red_flags, green_flags, capability_signals,
+    Returns a dict with keys: entities, advantages, disadvantages, rejection_reasons,
+    acceptance_boosters, red_flags, green_flags, capability_signals,
     summary_ar, summary_en, analyst_confidence.
     Falls back to empty result on any error so the pipeline always continues.
     """
     try:
+        from core.config import settings
         from services.llm_client import make_anthropic_client
         client = make_anthropic_client()
 
@@ -1010,8 +1118,8 @@ async def _llm_analyze(all_text: str) -> dict:
         text_excerpt = all_text[:80000]
 
         response = await client.messages.create(
-            model="claude-opus-4-6",
-            max_tokens=4096,
+            model=settings.primary_llm_model,
+            max_tokens=8192,
             system=_LLM_ANALYSIS_PROMPT,
             messages=[{"role": "user", "content": f"Document text:\n\n{text_excerpt}"}],
         )
@@ -1065,6 +1173,13 @@ def _merge_llm_results(
     rule_certs = set(merged_entities.get("required_certs", []))
     llm_certs = set(llm_entities.get("required_certs", []))
     merged_entities["required_certs"] = list(rule_certs | llm_certs)
+
+    # Merge deep analysis fields from LLM
+    for field in ("project_objectives", "key_deliverables", "technical_requirements", "mandatory_requirements"):
+        if not merged_entities.get(field):
+            val = llm_entities.get(field)
+            if val:
+                merged_entities[field] = val
 
     # ── Flags merge ───────────────────────────────────────────────────────────
     existing_red_keys = {(f.get("code"), f.get("severity")) for f in rule_flags.get("red", [])}
@@ -1216,7 +1331,10 @@ def _compute_scores(entities: dict, flags: dict, capability_result: dict) -> dic
 # ── Chunking & Embedding ───────────────────────────────────────────────────────
 
 def _chunk_text(text: str, rfp_id: str, sections: list[dict]) -> list[dict]:
-    """Split text into ~600-word chunks with 100-word overlap."""
+    """Split text into ~600-word chunks with 100-word overlap.
+    Extracts page_number from [PAGE N] markers in each chunk's text.
+    """
+    import re as _re
     chunks = []
     words = text.split()
     chunk_size = 600
@@ -1226,11 +1344,15 @@ def _chunk_text(text: str, rfp_id: str, sections: list[dict]) -> list[dict]:
 
     for i in range(0, len(words), step):
         chunk_words = words[i: i + chunk_size]
+        chunk_text = " ".join(chunk_words)
+        page_match = _re.search(r'\[PAGE (\d+)\]', chunk_text)
+        page_number = int(page_match.group(1)) if page_match else None
         chunks.append({
-            "text": " ".join(chunk_words),
+            "text": chunk_text,
             "rfp_id": rfp_id,
             "chunk_index": len(chunks),
             "section_type": "UNKNOWN",
+            "page_number": page_number,
         })
         if len(chunks) >= max_chunks:
             break
@@ -1238,17 +1360,44 @@ def _chunk_text(text: str, rfp_id: str, sections: list[dict]) -> list[dict]:
 
 
 async def _embed_chunks(chunks: list[dict]) -> list[list[float]]:
-    """Generate embeddings. Uses Ollama → Cohere → zero-vector fallback."""
+    """Generate embeddings. Routes to OpenAI → Cohere → Ollama → zero-vector fallback."""
     from core.config import settings
 
     if not chunks:
         return []
 
-    if settings.embedding_provider.lower() == "ollama":
-        return await _embed_chunks_ollama(chunks, settings)
-    elif settings.embedding_provider.lower() == "cohere":
+    provider = settings.embedding_provider.lower()
+    if provider == "openai":
+        return await _embed_chunks_openai(chunks, settings)
+    elif provider == "cohere":
         return await _embed_chunks_cohere(chunks, settings)
+    elif provider == "ollama":
+        return await _embed_chunks_ollama(chunks, settings)
     return [[0.0] * 1024 for _ in chunks]
+
+
+async def _embed_chunks_openai(chunks: list[dict], settings) -> list[list[float]]:
+    """Embed using OpenAI text-embedding-3-large (dim=1024)."""
+    from openai import AsyncOpenAI
+    if not settings.openai_api_key:
+        return [[0.0] * 1024 for _ in chunks]
+    try:
+        client = AsyncOpenAI(api_key=settings.openai_api_key)
+        texts = [c["text"] for c in chunks]
+        all_vectors: list[list[float]] = []
+        batch_size = 100
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            resp = await client.embeddings.create(
+                model=settings.embedding_model,
+                input=batch,
+                dimensions=1024,
+            )
+            all_vectors.extend([e.embedding for e in resp.data])
+        return all_vectors
+    except Exception as e:
+        logger.error("OpenAI embedding failed", error=str(e))
+        return [[0.0] * 1024 for _ in chunks]
 
 
 async def _embed_chunks_ollama(chunks: list[dict], settings) -> list[list[float]]:

@@ -1,265 +1,241 @@
-// ── Enums ─────────────────────────────────────────────────────────────────────
+// ── Auth ──────────────────────────────────────────────────────────────────────
 
-export type Role = "ADMIN" | "BD_MANAGER" | "BD_PERSON" | "PRE_SALES" | "PROPOSAL_WRITER" | "REVIEWER" | "READ_ONLY";
-
-export type DeckStatus = "PENDING" | "GENERATING" | "READY" | "FAILED";
-
-export type RFPStatus =
-  | "UPLOADED"
-  | "ANALYZING"
-  | "DECISION_READY"
-  | "ACTION_REQUIRED"
-  | "DRAFTING"
-  | "IN_REVIEW"
-  | "SUBMITTED"
-  | "WON"
-  | "LOST"
-  | "ARCHIVED";
-
-export type DecisionType = "GO" | "NO_GO" | "REVIEW";
-export type FlagType = "RED" | "GREEN";
-export type FlagSeverity = "CRITICAL" | "MAJOR" | "MINOR";
-export type DocType = "PAST_PROPOSAL" | "CAPABILITY" | "CASE_STUDY" | "TEMPLATE" | "COMPLIANCE" | "OTHER";
-export type ProposalStatus = "DRAFTING" | "IN_REVIEW" | "APPROVED" | "EXPORTED";
-export type ProposalOutcome = "PENDING" | "WON" | "LOST" | "WITHDRAWN";
-
-// ── Core Entities ─────────────────────────────────────────────────────────────
+export interface AuthResponse {
+  access_token: string
+  token_type: string
+  expires_in: number
+}
 
 export interface User {
-  id: string;
-  email: string;
-  name: string;
-  title: string | null;
-  phone: string | null;
-  role: Role;
-  isActive: boolean;
-  mfaEnabled: boolean;
-  avatarUrl: string | null;
-  preferredLanguage: string;
-  preferredTimezone: string;
-  createdAt: string;
-  lastActiveAt: string | null;
+  id: string
+  email: string
+  name: string
+  role: string
+  title?: string
+  phone?: string
+  isActive: boolean
+  createdAt: string
+  avatarUrl?: string
+  preferredLanguage?: string
+  preferredTimezone?: string
+  notificationEmail?: boolean
+  notificationSlack?: boolean
+  mfaEnabled?: boolean
+  lastActiveAt?: string
+}
+
+// ── RFP ───────────────────────────────────────────────────────────────────────
+
+export interface RFPFile {
+  id: string
+  filename: string
+  fileType: string
+  mimeType?: string
+  sizeBytes: number
+  pageCount?: number
+  storagePath: string
 }
 
 export interface RFP {
-  id: string;
-  titleAr: string | null;
-  titleEn: string | null;
-  agency: string | null;
-  tenderNumber: string | null;
-  language: "AR" | "EN" | "MIXED";
-  status: RFPStatus;
-  deadline: string | null;
-  estimatedValueSar: number | null;
-  ownerId: string;
-  uploadedByName: string | null;  // "Checked by: Ahmad Al-Harbi" — immutable
-  fileCount: number;
-  totalPages: number;
-  ocrConfidence: number | null;
-  deckStatus: DeckStatus | null;
-  createdAt: string;
-  updatedAt: string;
-  fitScore?: number | null;
-  decisionType?: string | null;
-  files?: RFPFile[];
+  id: string
+  titleAr?: string
+  titleEn?: string
+  agency?: string
+  tenderNumber?: string
+  language: string
+  status: string
+  deadline?: string
+  estimatedValueSar?: number
+  deckStatus?: 'PENDING' | 'GENERATING' | 'READY' | 'FAILED'
+  deckPdfPath?: string
+  ownerId: string
+  uploadedByName?: string
+  createdAt: string
+  files: RFPFile[]
 }
 
-export interface RFPFile {
-  id: string;
-  filename: string;
-  fileType: "MAIN" | "ANNEX" | "CONTRACT" | "PRICING" | "OTHER";
-  sizeBytes: number;
-  pageCount: number;
-  isOcrRequired: boolean;
-  ocrConfidence: number | null;
-  status: string;
+export interface PaginatedRFPs {
+  items: RFP[]
+  total: number
+  page: number
+  pageSize: number
 }
+
+// ── Decision ──────────────────────────────────────────────────────────────────
 
 export interface Flag {
-  id: string;
-  flagType: FlagType;
-  severity: FlagSeverity | null;
-  flagCode: string | null;
-  titleAr: string | null;
-  titleEn: string | null;
-  descriptionAr: string | null;
-  descriptionEn: string | null;
-  pageNumber: number | null;
-  sectionName: string | null;
-  evidenceQuote: string | null;
-  isManual: boolean;
-}
-
-export interface ScoreBreakdown {
-  technicalFit: number;
-  businessFit: number;
-  riskPenalty: number;
-  capabilityMatch: number;
-  pastSimilarity: number;
-  techStack: number;
-  certifications: number;
-  projectValue: number;
-  strategicAccount: number;
-  margin: number;
-  salesCycle: number;
-  complianceRisk: number;
-  deliveryRisk: number;
-  financialRisk: number;
-  competitionRisk: number;
+  id: string
+  flagType: 'RED' | 'GREEN'
+  severity?: string
+  flagCode?: string
+  titleEn?: string
+  titleAr?: string
+  descriptionEn?: string
+  descriptionAr?: string
+  evidenceQuote?: string
+  pageNumber?: number
+  sectionName?: string
 }
 
 export interface Decision {
-  id: string;
-  rfpId: string;
-  decisionType: DecisionType;
-  totalScore: number;
-  breakdown: ScoreBreakdown;
-  confidence: number;
-  explanationAr: string | null;
-  explanationEn: string | null;
-  redFlags: Flag[];
-  greenFlags: Flag[];
-  sectionsNeedingReview: string[];
-  isOverridden: boolean;
-  originalDecisionType: string | null;
-  overrideReason: string | null;
-  overrideAt: string | null;
-  modelVersion: string | null;
-  createdAt: string;
+  id: string
+  rfpId: string
+  decisionType: 'GO' | 'REVIEW' | 'NO_GO'
+  totalScore: number
+  technicalFit: number
+  businessFit: number
+  riskPenalty: number
+  confidence: number
+  capabilityMatchScore?: number
+  explanationEn?: string
+  explanationAr?: string
+  sectionsNeedingReview?: string
+  flags: Flag[]
+  createdAt: string
 }
 
-export interface CitationRef {
-  sourceId: string;
-  sourceType: string;
-  sourceTitle: string;
-  chunkText: string;
-  pageNumber: number | null;
-}
+// ── Proposal ──────────────────────────────────────────────────────────────────
 
 export interface ProposalSection {
-  id: string;
-  orderIndex: number;
-  titleAr: string | null;
-  titleEn: string | null;
-  contentAr: string | null;
-  contentEn: string | null;
-  isAiGenerated: boolean;
-  isLocked: boolean;
-  confidence: number | null;
-  hasUngroundedClaims: boolean;
-  citations: CitationRef[];
-  wordCount: number;
+  id: string
+  proposalId: string
+  orderIndex: number
+  titleAr?: string
+  titleEn?: string
+  contentAr?: string
+  contentEn?: string
+  isLocked: boolean
+  isAiGenerated: boolean
+  confidence?: number
+  wordCount: number
+  hasUngroundedClaims?: boolean
 }
 
 export interface Proposal {
-  id: string;
-  rfpId: string;
-  templateId: string | null;
-  status: ProposalStatus;
-  currentVersion: number;
-  approvedBy: string | null;
-  approvedAt: string | null;
-  submittedAt: string | null;
-  outcome: ProposalOutcome;
-  createdAt: string;
-  updatedAt: string;
-  sections: ProposalSection[];
+  id: string
+  rfpId: string
+  status: string
+  outcome?: string
+  outcomeNotes?: string
+  createdAt: string
+  sections: ProposalSection[]
 }
 
+// ── Knowledge Base ────────────────────────────────────────────────────────────
+
 export interface KnowledgeDoc {
-  id: string;
-  title: string;
-  docType: DocType;
-  language: string;
-  year: number | null;
-  tags: string[];
-  isIndexed: boolean;
-  embeddingModel: string | null;
-  indexedAt: string | null;
-  lastUsedAt: string | null;
-  usedCount: number;
-  outcome: string;
-  sizeBytes: number;
-  createdAt: string;
+  id: string
+  title: string
+  docType: string
+  language: string
+  storagePath: string
+  sizeBytes: number
+  isIndexed: boolean
+  outcome?: string
+  createdAt: string
+  indexedAt?: string
+}
+
+export interface KnowledgeStats {
+  total: number
+  indexed: number
+  byType: Record<string, number>
+}
+
+// ── Templates ─────────────────────────────────────────────────────────────────
+
+export interface TemplateSection {
+  id: string
+  templateId: string
+  titleAr?: string
+  titleEn?: string
+  orderIndex: number
+  isLocked: boolean
+  wordCountTarget?: number
+  aiInstructions?: string
 }
 
 export interface Template {
-  id: string;
-  nameAr: string;
-  nameEn: string;
-  descriptionEn: string | null;
-  supportedLanguages: string;
-  usedCount: number;
-  winCount: number;
-  winRate: number;
-  version: number;
-  isArchived: boolean;
-  sections: TemplateSection[];
+  id: string
+  nameAr: string
+  nameEn: string
+  supportedLanguages: string[]
+  projectTypes?: string[]
+  sections: TemplateSection[]
+  createdAt: string
 }
 
-export interface TemplateSection {
-  id: string;
-  orderIndex: number;
-  titleAr: string;
-  titleEn: string;
-  descriptionEn: string | null;
-  aiInstructions: string | null;
-  isAutoGenerated: boolean;
-  isRequiredCitations: boolean;
-  wordCountTarget: number | null;
-}
+// ── Notifications ─────────────────────────────────────────────────────────────
 
 export interface Notification {
-  id: string;
-  type: string;
-  titleAr: string | null;
-  titleEn: string | null;
-  bodyAr: string | null;
-  bodyEn: string | null;
-  deepLink: string | null;
-  isRead: boolean;
-  createdAt: string;
+  id: string
+  userId: string
+  type: string
+  titleEn?: string
+  titleAr?: string
+  bodyEn?: string
+  bodyAr?: string
+  isRead: boolean
+  createdAt: string
 }
+
+// ── Users ─────────────────────────────────────────────────────────────────────
+
+export interface UserListItem {
+  id: string
+  email: string
+  name: string
+  role: string
+  title?: string
+  isActive: boolean
+  createdAt: string
+  lastActiveAt?: string
+}
+
+export interface PaginatedUsers {
+  items: UserListItem[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+// ── Audit ─────────────────────────────────────────────────────────────────────
 
 export interface AuditLog {
-  id: string;
-  userId: string | null;
-  action: string;
-  targetType: string | null;
-  targetId: string | null;
-  oldValue: string | null;
-  newValue: string | null;
-  ipAddress: string | null;
-  createdAt: string;
+  id: string
+  userId?: string
+  userEmail?: string
+  action: string
+  targetType?: string
+  targetId?: string
+  ipAddress?: string
+  createdAt: string
 }
 
-// ── API Response Types ────────────────────────────────────────────────────────
-
-export interface PaginatedResponse<T> {
-  items: T[];
-  total: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
-}
-
-export interface ApiError {
-  detail: string;
-  detailAr?: string;
-  code?: string;
+export interface PaginatedAudit {
+  items: AuditLog[]
+  total: number
+  page: number
+  pageSize: number
 }
 
 // ── Analytics ─────────────────────────────────────────────────────────────────
 
-export interface KPIs {
-  periodDays: number;
-  pipeline: { active: number };
-  decisions: { total: number; go: number; noGo: number; review: number };
-  outcomes: { won: number; lost: number; winRate: number };
+export interface KpiData {
+  totalRfps: number
+  activeRfps: number
+  decisionReady: number
+  goCount: number
+  reviewCount: number
+  noGoCount: number
+  winRate: number
+  decisions: number
 }
 
-export interface ChartDataPoint {
-  name: string;
-  value: number;
-  [key: string]: string | number;
+export interface ChartPoint {
+  period: string
+  count: number
+  goCount?: number
+  reviewCount?: number
+  noGoCount?: number
 }
