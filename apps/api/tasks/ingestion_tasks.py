@@ -31,26 +31,41 @@ ENTROPY_CERTS_NOT_HELD = {
     "CITC",          # Communications & IT Commission license
 }
 
-# Existing clients — used for past-work scoring and strategic fit detection
+# Existing clients — confirmed engagements per Entropy Company Profile 2024/2026
 ENTROPY_EXISTING_CLIENTS = {
     # Arabic names
     "وزارة التجارة", "هيئة الحكومة الرقمية", "وزارة الداخلية",
     "وزارة الصناعة والثروة المعدنية", "مجمع الملك سلمان العالمي للغة العربية",
     "هيئة المنشآت الصغيرة والمتوسطة", "القوات البرية الملكية السعودية",
     "المؤسسة العامة للري",
+    # Arabic names — confirmed 2024 clients
+    "هيئة العُلا", "هيئة العلا", "الهيئة الملكية لمحافظة العُلا",
+    "هيئة الموانئ", "موانئ",
+    "المجلس الصحي السعودي",
+    "البنك المركزي السعودي", "ساما",
+    "الهيئة العامة للإحصاء",
+    "الهيئة الوطنية للأمن السيبراني",
+    "أرامكو السعودية", "أرامكو",
     # English names
     "Ministry of Commerce", "Digital Government Authority",
     "Ministry of Interior", "Ministry of Industry", "Mineral Resources",
     "NHC", "National Housing Company",
     "King Salman Global Academy", "Monsha'at",
     "Royal Saudi Land Forces", "Saudi Irrigation Organization",
+    # English names — confirmed 2024 clients
+    "Royal Commission for AlUla", "RCU",
+    "Saudi Ports Authority", "Mawani",
+    "Saudi Health Council",
+    "Saudi Central Bank", "SAMA",
+    "General Authority for Statistics", "GASTAT",
+    "National Cybersecurity Authority", "NCA",
+    "Saudi Aramco", "Aramco",
 }
 
 # Strategic target agencies (same sector as existing clients + Vision 2030 bodies)
 STRATEGIC_AGENCIES = ENTROPY_EXISTING_CLIENTS | {
     "SDAIA", "هيئة البيانات والذكاء الاصطناعي",
     "NEOM", "نيوم",
-    "Saudi Aramco", "أرامكو",
     "SABIC", "سابك",
     "STC", "stc", "الاتصالات السعودية",
     "Vision 2030", "رؤية 2030",
@@ -63,18 +78,28 @@ STRATEGIC_AGENCIES = ENTROPY_EXISTING_CLIENTS | {
     "Aramco Digital",
     "PIF", "صندوق الاستثمارات العامة",
     "MCIT", "وزارة الاتصالات وتقنية المعلومات",
+    "SFDA", "هيئة الغذاء والدواء",
+    "MISA", "وزارة الاستثمار",
+    "MOF", "Ministry of Finance", "وزارة المالية",
+    "Diriyah", "ديريه", "DGDA",
+    "ROSHN", "روشن",
+    "Qiddiya", "القدية",
 }
 
-# Technology partners — used for tech-stack fit scoring
+# Technology partners — confirmed formal partnerships per Entropy profile
 ENTROPY_TECH_PARTNERS = {
-    "Google Cloud", "GCP",
-    "Microsoft", "Azure", "M365",
-    "Oracle",
-    "Dataiku",
+    "Microsoft", "Azure", "M365", "Microsoft Fabric", "Power BI", "Copilot",
+    "Snowflake",
     "Databricks",
     "Informatica",
+    "Collibra",
+    "Tableau",
+    "OpenAI", "Azure OpenAI",
+    "Glean",
+    "Google Cloud", "GCP",
+    "Oracle",
+    "Dataiku",
     "Groq",
-    "Turing",
 }
 
 # Entropy's capability map — each key is a capability area with bilingual keywords
@@ -381,7 +406,8 @@ async def _process_rfp_async(rfp_id: str, task) -> dict:
             t = time.time()
             await publish_step("decision_scoring", "running")
             scores = _compute_scores(entities, flags_data, capability_result)
-            total = max(0.0, min(100.0, scores["technical"] + scores["business"] - scores["risk"]))
+            # Use the pre-computed 8-dimension total; fall back to 3-bucket formula for safety
+            total = max(0.0, min(100.0, scores.get("total", scores["technical"] + scores["business"] - scores["risk"])))
 
             from services.qualification_service import apply_decision_logic
 
@@ -416,11 +442,6 @@ async def _process_rfp_async(rfp_id: str, task) -> dict:
             cap_labels = [CAP_LABELS.get(c, c) for c in matched_caps]
             cap_display = ", ".join(cap_labels) if cap_labels else "No direct capability keywords found"
 
-            # Score breakdown
-            tech_score = scores["technical"]
-            biz_score = scores["business"]
-            risk_score = scores["risk"]
-
             # Agency / value / deadline context
             agency_name = entities.get("issuing_agency", rfp.agency or "")
             value_sar = entities.get("estimated_value_sar", 0)
@@ -436,25 +457,65 @@ async def _process_rfp_async(rfp_id: str, task) -> dict:
             major_flags = [f for f in red_list if f.get("severity") == "MAJOR"]
 
             if decision_type == "GO":
-                rationale_en = f"Score ({total:.0f}/100) meets GO threshold (≥60) with no critical blockers."
-                rationale_ar = f"الدرجة ({total:.0f}/100) تستوفي حد القرار GO (≥60) دون وجود عوامل حظر حرجة."
+                rationale_en = f"Score ({total:.0f}/100) meets GO threshold (≥80) with no critical blockers."
+                rationale_ar = f"الدرجة ({total:.0f}/100) تستوفي حد القرار GO (≥80) دون وجود عوامل حظر حرجة."
             elif decision_type == "REVIEW":
                 if critical_flags:
                     rationale_en = f"Critical blocker(s) present: {'; '.join(f['title_en'] for f in critical_flags[:2])}."
                     rationale_ar = f"توجد عوامل حظر حرجة: {'; '.join(f['title_ar'] for f in critical_flags[:2])}."
                 elif major_flags:
-                    rationale_en = f"Major risk flag(s) reduce confidence: {'; '.join(f['title_en'] for f in major_flags[:2])}."
-                    rationale_ar = f"علامات خطر رئيسية تقلل من الثقة: {'; '.join(f['title_ar'] for f in major_flags[:2])}."
+                    rationale_en = (
+                        f"Score ({total:.0f}/100) in the REVIEW band (45–79). "
+                        f"Major risk(s): {'; '.join(f['title_en'] for f in major_flags[:2])}."
+                    )
+                    rationale_ar = (
+                        f"الدرجة ({total:.0f}/100) في نطاق المراجعة (45–79). "
+                        f"مخاطر رئيسية: {'; '.join(f['title_ar'] for f in major_flags[:2])}."
+                    )
+                elif 65 <= total < 80:
+                    rationale_en = f"Score ({total:.0f}/100) — CONDITIONAL GO. Address identified gaps before submitting."
+                    rationale_ar = f"الدرجة ({total:.0f}/100) — قبول مشروط. يجب معالجة الثغرات المحددة قبل التقديم."
                 else:
-                    rationale_en = f"Score ({total:.0f}/100) is in the REVIEW band (40–59). Manual assessment recommended."
-                    rationale_ar = f"الدرجة ({total:.0f}/100) تقع في نطاق المراجعة (40–59). يُوصى بتقييم يدوي."
+                    rationale_en = f"Score ({total:.0f}/100) in the WATCH band (45–64). Manual assessment recommended."
+                    rationale_ar = f"الدرجة ({total:.0f}/100) في نطاق المراقبة (45–64). يُوصى بتقييم يدوي."
             else:  # NO_GO
                 if critical_flags:
                     rationale_en = f"Disqualifying blocker(s): {'; '.join(f['title_en'] for f in critical_flags[:2])}."
                     rationale_ar = f"عوامل إسقاط فورية: {'; '.join(f['title_ar'] for f in critical_flags[:2])}."
                 else:
-                    rationale_en = f"Score ({total:.0f}/100) is below the NO_GO threshold (<40)."
-                    rationale_ar = f"الدرجة ({total:.0f}/100) أقل من حد NO_GO (<40)."
+                    rationale_en = f"Score ({total:.0f}/100) is below the NO-GO threshold (<45)."
+                    rationale_ar = f"الدرجة ({total:.0f}/100) أقل من حد NO-GO (<45)."
+
+            # 8-dimension score breakdown
+            d1 = scores.get("d1_sector", 0)
+            d2 = scores.get("d2_domain", 0)
+            d3 = scores.get("d3_ndmo", 0)
+            d4 = scores.get("d4_ai", 0)
+            d5 = scores.get("d5_arabic", 0)
+            d6 = scores.get("d6_product", 0)
+            d7 = scores.get("d7_feasibility", 0)
+            d8 = scores.get("d8_compliance", 0)
+
+            dim_breakdown_en = (
+                f"D1 Sector Fit: {d1:.0f}/20 | "
+                f"D2 Domain: {d2:.0f}/25 | "
+                f"D3 NDMO/Gov: {d3:.0f}/15 | "
+                f"D4 AI/GenAI: {d4:.0f}/15 | "
+                f"D5 Arabic: {d5:.1f}/10 | "
+                f"D6 Product: {d6:.0f}/5 | "
+                f"D7 Feasibility: {d7:.1f}/5 | "
+                f"D8 Eligibility: {d8:.0f}/5"
+            )
+            dim_breakdown_ar = (
+                f"D1 ملاءمة القطاع: {d1:.0f}/20 | "
+                f"D2 التوافق التقني: {d2:.0f}/25 | "
+                f"D3 NDMO/الحوكمة: {d3:.0f}/15 | "
+                f"D4 الذكاء الاصطناعي: {d4:.0f}/15 | "
+                f"D5 اللغة العربية: {d5:.1f}/10 | "
+                f"D6 منتجات إنتروبي: {d6:.0f}/5 | "
+                f"D7 جدوى النطاق: {d7:.1f}/5 | "
+                f"D8 الأهلية: {d8:.0f}/5"
+            )
 
             # Green flag highlights
             green_highlights_en = "; ".join(f["title_en"] for f in green_list[:3]) if green_list else "None"
@@ -466,8 +527,7 @@ async def _process_rfp_async(rfp_id: str, task) -> dict:
 
             explanation_en = (
                 f"Decision: {decision_type} — {rationale_en}\n\n"
-                f"Score breakdown: Total {total:.0f}/100 "
-                f"(Technical fit: {tech_score:.0f}/40 | Business fit: {biz_score:.0f}/30 | Risk penalty: -{risk_score:.0f}/30)\n\n"
+                f"Score: {total:.0f}/100 | {dim_breakdown_en}\n\n"
                 f"Agency: {agency_name or 'Unknown'} | "
                 f"Estimated value: {value_str} | "
                 f"Duration: {duration_str} | "
@@ -480,8 +540,7 @@ async def _process_rfp_async(rfp_id: str, task) -> dict:
             )
             explanation_ar = (
                 f"القرار: {decision_type} — {rationale_ar}\n\n"
-                f"تفصيل الدرجات: المجموع {total:.0f}/100 "
-                f"(الملاءمة التقنية: {tech_score:.0f}/40 | الملاءمة التجارية: {biz_score:.0f}/30 | خصم المخاطر: -{risk_score:.0f}/30)\n\n"
+                f"الدرجة: {total:.0f}/100 | {dim_breakdown_ar}\n\n"
                 f"الجهة: {agency_name or 'غير محددة'} | "
                 f"القيمة التقديرية: {value_str} | "
                 f"المدة: {duration_str} | "
@@ -776,6 +835,99 @@ async def _detect_flags(sections: list[dict], entities: dict) -> dict:
     green_flags = []
     all_text = " ".join(s.get("content", "") for s in sections)
 
+    # ── INSTANT NO-GO: Scope mismatch detection ────────────────────────────────
+
+    # Pattern 1: Pure cybersecurity (Entropy is not a cybersecurity firm)
+    CYBERSEC_PATTERNS = [
+        r"SOC[\s-]?as[\s-]?a[\s-]?service", r"\bSOC\s*setup\b", r"\bSIEM\b", r"\bSOAR\b",
+        r"penetration test", r"\bpentest\b", r"red team", r"\bVA/PT\b", r"\bVAPT\b",
+        r"\bNDR\b", r"\bEDR\b", r"\bXDR\b", r"managed security service",
+        r"cybersecurity operation", r"أمن سيبراني.*تشغيل", r"مركز العمليات الأمنية",
+        r"فريق.*أحمر",
+    ]
+    # Pattern 2: Clinical healthcare (not health analytics)
+    CLINICAL_PATTERNS = [
+        r"\bHIS\b", r"\bEMR\b", r"\bEHR\b", r"\bPACS\b", r"\bRIS\b",
+        r"clinical decision support", r"hospital information system",
+        r"medical imaging", r"surgical planning", r"ICU monitoring",
+        r"pharmacy system", r"patient management system",
+        r"نظام.*سريري", r"ملف المريض", r"التصوير الطبي",
+    ]
+    # Pattern 3: Network/hardware infrastructure
+    INFRA_PATTERNS = [
+        r"network.*cabling", r"physical.*infrastructure", r"data center.*build",
+        r"\brouter\b.*\bswitch\b", r"hardware.*procurement.*only",
+        r"تمديدات شبكة", r"بنية تحتية.*مادية",
+    ]
+
+    import re as _re_flags
+
+    cyb_found = next(
+        (p for p in CYBERSEC_PATTERNS if _re_flags.search(p, all_text, _re_flags.IGNORECASE)),
+        None,
+    )
+    # Only trigger cybersecurity NO-GO if it's the PRIMARY scope, not just a mention
+    # Heuristic: multiple cybersec keywords without any data/AI keywords = primary scope
+    cyb_count = sum(1 for p in CYBERSEC_PATTERNS if _re_flags.search(p, all_text, _re_flags.IGNORECASE))
+    data_ai_count = sum(
+        1 for cap in ENTROPY_CAPABILITIES
+        for kw in ENTROPY_CAPABILITIES[cap]["keywords_en"]
+        if kw.lower() in all_text.lower()
+    )
+    if cyb_count >= 3 and data_ai_count <= 2:
+        red_flags.append({
+            "code": "SCOPE_MISMATCH",
+            "severity": "CRITICAL",
+            "title_en": "Primary scope is cybersecurity — outside Entropy's domain",
+            "title_ar": "النطاق الرئيسي أمن سيبراني — خارج نطاق إنتروبي",
+            "description_en": (
+                "This RFP's primary scope appears to be cybersecurity services (SOC, SIEM, managed security, "
+                "or similar). Entropy is not a cybersecurity firm and does not hold the required CITC license "
+                "or NCA ECC certification. This is an instant NO-GO."
+            ),
+            "page": _section_page(sections, "scope", "نطاق"),
+            "section": "Scope",
+        })
+
+    clin_found = next(
+        (p for p in CLINICAL_PATTERNS if _re_flags.search(p, all_text, _re_flags.IGNORECASE)),
+        None,
+    )
+    if clin_found:
+        red_flags.append({
+            "code": "SCOPE_MISMATCH",
+            "severity": "CRITICAL",
+            "title_en": "Clinical healthcare scope — outside Entropy's domain",
+            "title_ar": "نطاق رعاية صحية سريرية — خارج نطاق إنتروبي",
+            "description_en": (
+                "This RFP requires clinical healthcare systems (HIS, EMR, PACS, clinical AI, or similar). "
+                "Entropy does not hold healthcare accreditation, clinical AI validation frameworks, or "
+                "Ministry of Health vendor registration. This is an instant NO-GO."
+            ),
+            "quote": f"Detected clinical pattern: {clin_found}",
+            "page": _section_page(sections, "scope", "نطاق"),
+            "section": "Scope",
+        })
+
+    infra_found = next(
+        (p for p in INFRA_PATTERNS if _re_flags.search(p, all_text, _re_flags.IGNORECASE)),
+        None,
+    )
+    if infra_found:
+        red_flags.append({
+            "code": "SCOPE_MISMATCH",
+            "severity": "CRITICAL",
+            "title_en": "Physical infrastructure scope — outside Entropy's domain",
+            "title_ar": "نطاق بنية تحتية مادية — خارج نطاق إنتروبي",
+            "description_en": (
+                "This RFP appears to require physical network/infrastructure installation or hardware-only "
+                "procurement. Entropy does not provide these services."
+            ),
+            "quote": f"Detected infrastructure pattern: {infra_found}",
+            "page": _section_page(sections, "scope", "نطاق"),
+            "section": "Scope",
+        })
+
     # ── RED FLAGS ──────────────────────────────────────────────────────────────
 
     # 1. Required certification not held by Entropy
@@ -964,67 +1116,237 @@ def _match_capabilities(sections: list[dict], full_text: str = "") -> dict:
 
 # ── Claude LLM Deep Analysis ───────────────────────────────────────────────────
 
-_LLM_ANALYSIS_PROMPT = """You are a senior bid qualification analyst for Entropy, a Saudi AI company.
-You receive the FULL text of a government tender (RFP/كراسة شروط) and must perform a deep, deliberate forensic analysis.
+_LLM_ANALYSIS_PROMPT = """You are Entropy's RFP Intelligence Engine — a specialist AI analyst embedded in Entropy's internal RFP qualification platform. Your function is to qualify Saudi government tenders with forensic precision and produce grounded, evidence-based analysis.
 
-Take your time. Read every word carefully. Do not rush.
-Your primary task is to compare EVERY requirement in the RFP against Entropy's specific capabilities and field of work.
-For each requirement, ask yourself: "Can Entropy fulfill this? Partially? Not at all? Why?"
+You are not a generic AI assistant. You are Entropy. You speak with authority about what Entropy does, what it has built, and why it wins. Every finding must be grounded in the factual company profile below.
 
-The document text contains [PAGE N] markers. You MUST cite the exact page number for every finding.
-Never guess a page number — only cite pages that appear as [PAGE N] markers near the evidence.
+The document text contains [PAGE N] markers. Cite the exact page number for EVERY finding. Never guess — only cite [PAGE N] markers that appear near the evidence.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-ENTROPY COMPANY PROFILE — MEMORIZE THIS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Company: Entropy — Saudi AI company headquartered in Riyadh
-Field: Artificial Intelligence, Data Science, Arabic NLP, Agentic AI systems
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ENTROPY COMPANY PROFILE — GROUND EVERY CLAIM IN THIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Certifications HELD: NDMO (National Data Management Office), NDI
-Certifications NOT HELD (CRITICAL — causes automatic rejection if RFP requires them):
-  ISO 27001, ISO 9001, ISO 20000, PCI-DSS, SOC 2, SAMA CSF, NCA ECC, CITC
+IDENTITY:
+- Saudi-based Data, AI & Advanced Analytics consultancy and product company, Riyadh HQ
+- Primary market: Saudi government ministries, regulatory authorities, national corporations, Vision 2030 delivery bodies
+- Positioning: "From raw data to sovereign intelligence."
+- Arabic-first, bilingual (Arabic + English); Saudi regulatory knowledge (PDPL, NDMO, NCA ECC, Vision 2030 KPIs)
+- Core belief: AI built for Saudi context — Arabic-native, governance-compliant — outperforms adapted Western tools
 
-Core Capabilities (compare each RFP requirement against these):
-- Arabic NLP & NLU: Arabic chatbots, Arabic text classification, Arabic OCR, dialect understanding (CORE STRENGTH — weight 1.5x)
-- Generative AI / LLMs / RAG (weight 1.3x)
-- Agentic AI / Multi-agent systems (weight 1.3x)
-- Data Management & Governance / NDMO compliance (weight 1.2x)
-- Document Intelligence & IDP (weight 1.2x)
-- Computer Vision, Speech Recognition, Arabic ASR (weight 1.0x)
-- Data Engineering, ETL, Data Platforms, Lakehouse (weight 1.0x)
-- Analytics & BI, Dashboards, KPIs (weight 1.0x)
-- Time-Series Forecasting, Anomaly Detection (weight 1.0x)
-- Traditional ML, Deep Learning, MLOps (weight 1.0x)
+PRODUCTS:
+1. HYDROGEN — Enterprise AI Agent Orchestration Platform
+   Multi-agent orchestration, autonomous AI agents, human-in-the-loop oversight, RAG pipelines, LLM orchestration
+   Deployment: on-premise, Azure-native, hybrid
+   Full Arabic document ingestion, chunking, retrieval
+   Designed for: government operations automation, document processing, approvals pipelines, intelligent routing
 
-Technology Partners: Google Cloud / GCP, Microsoft Azure, Oracle, Dataiku, Databricks, Informatica, Groq, Turing
-Products: Hydrogen (Agentic AI platform), Yameen (Arabic meeting AI), Axiom (Data Analytics)
+2. AXIOM — Agentic Analytics Platform
+   AI-driven insight generation, automated Arabic/English narrative reporting, agentic layer (not passive BI)
+   Integrations: Microsoft Fabric, Power BI, Tableau, Snowflake, custom data lakes
+   Differentiator: analytical agents proactively surface anomalies, forecasts, and executive narratives — no query required
+   Designed for: ministerial performance dashboards, KPI monitoring, operational intelligence, audit analytics
 
-Existing Clients (strategic advantage if RFP is from same entity or sector):
-  Ministry of Commerce, Digital Government Authority, Ministry of Interior,
-  Ministry of Industry & Mineral Resources, NHC, King Salman Global Academy,
-  Monsha'at, Royal Saudi Land Forces, Saudi Irrigation Organization
+3. YAMEEN — AI Meeting Intelligence Platform
+   Arabic + bilingual transcription, summarization, action items — real-time
+   Gulf Arabic dialect awareness
+   Integrations: Microsoft Teams, Zoom, Google Meet
+   Designed for: government councils, ministerial committees, board meetings, project governance
 
-Cannot provide (will cause delivery failure):
-- On-premise GPU clusters or physical hardware
-- Networking/cabling/infrastructure installation
-- Non-AI software development (ERP, CRM, websites unrelated to AI)
+SERVICE PILLARS:
+PILLAR 1 — Data & AI Foundations:
+  Data governance (NDMO-aligned, DAMA-compatible), data strategy & roadmap, DMO setup & activation,
+  data architecture (lakehouse, medallion, federated), data quality frameworks, MDM,
+  PDPL compliance assessments, metadata management, data catalog, data literacy programs
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-YOUR TASK — DEEP COMPANY-TO-RFP COMPARISON
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Step 1 — READ the entire document carefully from start to finish.
-Step 2 — For EVERY requirement found, map it to Entropy's capabilities:
-  • Does Entropy's field of work cover this requirement?
-  • Which specific capability handles it?
-  • Can it be fulfilled fully, partially, or not at all?
-  • What evidence from the RFP supports or blocks this?
-Step 3 — Build a complete picture of fit BEFORE writing any output.
-Step 4 — Output the JSON below with ALL findings populated.
+PILLAR 2 — AI & ML Technologies:
+  Generative AI (RAG pipelines, fine-tuning, prompt engineering), Arabic NLP (Gulf dialect, formal Arabic),
+  OCR + VLM pipelines for scanned Arabic documents, ML model development (predictive, classification, clustering),
+  AI model evaluation & red-teaming, responsible AI frameworks, AI readiness assessments, AI use case discovery
 
-Analyze EVERY requirement. Do NOT summarize or skip sections.
-For each finding, cite the page number and an exact quote.
+PILLAR 3 — AI & Analytics Platforms:
+  Microsoft Fabric implementation, Power BI premium + governance, Snowflake, custom agentic analytics (Axiom),
+  BI Center of Excellence setup, real-time analytics & streaming, data product development
 
-Return ONLY a valid JSON object — no markdown, no backticks, no explanation:
+CONFIRMED CLIENTS (reference only when contextually relevant to the RFP scope):
+- Ministry of Interior (MOI): Full NDMO-aligned DMO activation, data governance policy framework, 20-week delivery, first ministerial DMO at NDMO Tier 1
+- Royal Commission for AlUla (RCU): 3-stream AI audit platform — Hydrogen agents + Axiom analytics + CCA, bilingual NLP, Azure-native, Teammate+ integration
+- Monsha'at (SME Authority): AI adoption framework for national SME authority, consulting + training delivery
+- Saudi Ports Authority (Mawani): Data & AI platform
+- Saudi Health Council: Analytics and data platform
+- Saudi Central Bank (SAMA): Data governance and analytics
+- General Authority for Statistics (GASTAT): Data platform and analytics
+- National Cybersecurity Authority (NCA): Data and reporting work — this is DATA work FOR NCA, NOT cybersecurity services
+- Saudi Aramco: AI and analytics engagements
+
+PROVEN SUCCESS STORIES (use as proposal evidence):
+Story 1 — MOI DMO: NDMO-aligned DMO, governance policy suite, data stewardship model, metadata catalog, training. 20 weeks, 12 deliverables.
+Story 2 — RCU AI Audit: AI audit efficiency agents, advanced audit analytics, continuous control monitoring. Audit cycle reduced from manual weeks to AI-assisted days.
+Story 3 — Monsha'at AI Adoption: AI adoption framework for Saudi SME national authority, structured roadmap for national rollout.
+Story 4 — Agentic Analytics: Client moved from monthly manual BI reports to daily AI-generated Arabic insight packages — no headcount increase.
+Story 5 — Sovereign Data Platform: On-premise/hybrid data lakehouse + ML model registry + vector store + governance layer for a government entity.
+
+TECHNOLOGY PARTNERS (formal partnerships):
+Microsoft/Azure, Microsoft Fabric, Power BI, Copilot, Snowflake, Databricks, Informatica, Collibra, Tableau, OpenAI/Azure OpenAI, Glean, Google Cloud/GCP, Dataiku, Oracle, Groq
+
+CERTIFICATIONS & DIFFERENTIATORS:
+- NDMO alignment: deep expertise — hard requirement in many government RFPs, a core Entropy strength
+- DAMA/CDMP certified staff
+- Arabic-native AI: NOT translation layers — builds Arabic-first NLP with Gulf dialect awareness
+- PDPL, NCA ECC, Vision 2030 regulatory knowledge
+- Saudization: maintains ≥40% Saudi national staffing
+- Bilingual deliverables: Arabic + English on all outputs
+
+CERTIFICATIONS HELD: NDMO alignment, DAMA/CDMP
+CERTIFICATIONS NOT HELD (eligibility risk if required):
+  ISO 27001, ISO 9001, ISO 20000, PCI-DSS, SOC 2, SAMA CSF, NCA ECC, CITC license
+
+WHAT ENTROPY CANNOT DELIVER (delivery failure risk → flag as SCOPE_MISMATCH):
+- Cybersecurity operations: SOC setup, SIEM/SOAR, penetration testing, NDR/EDR/XDR, red team, managed security
+- Clinical healthcare AI: HIS, EMR, PACS, clinical decision support, medical imaging AI, surgical planning, ICU monitoring
+- Network/telecom infrastructure: routers, switches, cabling, data center physical build
+- Hardware-only procurement
+- General IT development unrelated to AI/data: e-government portals (non-AI), ERP (non-data track), IT helpdesk
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8-DIMENSION QUALIFICATION RUBRIC (100 POINTS TOTAL)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Apply this rubric dimension by dimension. Justify each score with a quote or specific reference.
+
+D1 — Sector & Client Fit (0-20):
+  18-20: Saudi government ministry, regulatory authority, national corporation (MOI, NDMO, SFDA, NCA, SAMA, RCU, GASTAT, Aramco affiliates, Vision 2030 delivery bodies)
+  12-17: Saudi quasi-government, semi-private national, large private sector (banking, telecom, energy)
+  6-11:  Saudi private sector SME, regional government, non-Saudi GCC
+  0-5:   Non-GCC entity, non-strategic sector
+  GREEN: "وزارة", "هيئة", "شركة وطنية", Vision 2030 entity, existing Entropy client
+
+D2 — Technical Domain Alignment (0-25):
+  22-25: Core Entropy domain: data governance, NDMO alignment, AI agents, GenAI, Arabic NLP, analytics platforms, DMO setup
+  15-21: Adjacent: data engineering, BI platforms, AI strategy consulting, digital transformation with AI component
+  8-14:  Partial: IT project management with data component, general digital transformation (no AI requirement)
+  0-7:   No overlap: pure cybersecurity, network infrastructure, hardware procurement, clinical systems
+  INSTANT 0 + SCOPE_MISMATCH CRITICAL: pure cybersecurity, clinical healthcare, network/hardware
+
+D3 — NDMO / Data Governance (0-15):
+  13-15: Explicitly requires NDMO alignment, DMO setup, data governance policies, PDPL compliance, data stewardship
+  8-12:  Data strategy, data quality, metadata — NDMO implied
+  3-7:   Data present but governance not a priority
+  0-2:   No data governance element
+
+D4 — AI / Generative AI (0-15):
+  13-15: Explicit AI agents, GenAI, LLM, RAG, agentic analytics, NLP, AI-powered automation
+  8-12:  AI/ML models, intelligent analytics, smart dashboards, predictive models
+  3-7:   AI mentioned as desirable but not core; mainly BI/reporting
+  0-2:   No AI requirement
+
+D5 — Arabic Language (0-10):
+  9-10: Arabic-first mandatory; Arabic NLP processing required; bilingual platform
+  6-8:  Arabic deliverables required; bilingual interface required
+  3-5:  Arabic preferred; English acceptable
+  0-2:  English-only or language not specified
+  NOTE: Arabic-native NLP is Entropy's key differentiator — RFPs requiring Arabic processing = hardest wins
+
+D6 — Entropy Product Fit (0-5):
+  5:    Clear fit for Hydrogen (agent orchestration), Axiom (agentic analytics), or Yameen (meeting intelligence)
+  3-4:  Product could be proposed as part of solution
+  1-2:  Adaptable but significant customization needed
+  0:    No product fit; pure professional services
+
+D7 — Scope Feasibility (0-5):
+  5:    Well-defined scope, realistic 12-24 week timeline, clear deliverables, manageable team
+  3-4:  Somewhat ambiguous; tight but achievable; deliverables negotiable
+  1-2:  Massive or unclear scope; unrealistic timeline; requires heavy subcontracting
+  0:    Fundamentally outside Entropy's capacity without a major consortium partner
+
+D8 — Compliance & Eligibility (0-5):
+  5:    No hard eligibility barriers; Entropy meets all stated requirements
+  3-4:  Minor eligibility question (e.g., ISO 27001 needed); addressable via partner
+  1-2:  Significant barrier (e.g., SAMA CSF, CITC license, healthcare accreditation)
+  0:    Entropy definitionally ineligible (listed stock company required, healthcare institution required)
+
+DECISION THRESHOLDS:
+  80-100: GO — Pursue aggressively
+  65-79:  CONDITIONAL GO — Pursue if capacity allows; identify gaps; consider partnership
+  45-64:  WATCH — Monitor; do not pursue now; may revisit if scope changes
+  0-44:   NO-GO — Decline
+
+INSTANT NO-GO OVERRIDE RULES (flag as SCOPE_MISMATCH CRITICAL):
+  1. RFP is exclusively cybersecurity: SOC, SIEM/SOAR, pentest, VA/PT, red team, NDR/EDR/XDR
+  2. RFP is for clinical healthcare: HIS, EMR, PACS, clinical AI, medical imaging, surgical planning
+  3. RFP is for physical infrastructure, network, hardware-only
+  4. Entropy explicitly ineligible per mandatory criteria (check D8)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTOR-SPECIFIC GUIDANCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Saudi Government Ministries (MOI, MOF, MISA, MCIT, MOH, MOE):
+  Lead with NDMO compliance + data governance. PDPL mandatory. Arabic deliverables required. 70/30 technical/financial scoring.
+  Reference Ministry of Interior DMO success when relevant. Etimad procurement platform.
+
+Regulatory Authorities (SAMA, SFDA, GASTAT, NCA, CITC, CMA):
+  Lead with domain-specific AI. Arabic reporting essential. Sector-specific regulatory compliance layer.
+  Key: NCA is an ENTROPY DATA CLIENT — Entropy does data work FOR NCA. This is different from doing cybersecurity services.
+
+National Corporations (Aramco, SABIC, STC, Mawani):
+  Lead with AI platform architecture + Axiom for operational intelligence + Hydrogen for workflow automation.
+  Commercial flexibility higher. Can propose SaaS/subscription.
+
+Vision 2030 Delivery Bodies (RCU, NEOM, Diriyah Gate, Qiddiya, ROSHN):
+  Smart city data layer, AI for project governance, Yameen for executive meeting intelligence.
+  Innovation narrative resonates. Compressed timelines — assess team availability.
+
+SME / Private Sector (Monsha'at portfolio, private banks, telecom):
+  Lead with ROI and time-to-value. Shorter 8-16 week engagements. SaaS deployment preferred.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+KNOWN REJECTION PATTERNS — ACCELERATE NO-GO DECISIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PATTERN 1: Healthcare Clinical AI / AI Factory (Clinical)
+  Keywords: HIS, EMR, PACS, "AI Factory" for hospital ops, clinical decision support, medical imaging, ICU monitoring, pharmacy systems
+  Why rejected: requires healthcare regulatory accreditation, clinical AI validation, MOH vendor registration. No relevant past performance.
+  Rule: If AI primarily modifies clinical workflows or patient care → SCOPE_MISMATCH CRITICAL → NO-GO
+  CAUTION: health DATA governance, NHIC analytics, public health statistics ≠ clinical → may still fit
+
+PATTERN 2: Pure Cybersecurity
+  Keywords: SOC-as-a-service, SIEM, SOAR, pentest, VA/PT, red team, NDR/EDR/XDR, managed security, NCA compliance AUDIT (as cybersecurity firm)
+  Why rejected: not a cybersecurity firm, no CITC cybersecurity license, no security ops team
+  Rule: If primary deliverable is a cybersecurity service (not data/AI) → SCOPE_MISMATCH CRITICAL
+  CAUTION: cybersecurity RFP that also has data analytics / AI component → score D2 for the data part only; flag partial scope risk
+
+PATTERN 3: Non-Data/AI Digital Government Services
+  Keywords: e-government portals (non-AI), mobile apps, IT helpdesk, ERP implementation (non-data track), general digital government
+  Why rejected: IT services, not Data/AI consulting; Entropy is not a general IT integrator
+  Rule: If scope is digital services without meaningful Data/AI/analytics → SCOPE_MISMATCH MAJOR
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+YOUR ANALYSIS TASK — STEP BY STEP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Step 1 — READ the entire document word by word. Do not rush. Do not summarize prematurely.
+Step 2 — CHECK for INSTANT NO-GO triggers first. If found, set SCOPE_MISMATCH CRITICAL immediately.
+Step 3 — For EVERY requirement found:
+  • Which Entropy capability covers it? (Be specific: HYDROGEN for agents, AXIOM for analytics, specific service pillar)
+  • Can Entropy fulfill it: FULL / PARTIAL / NONE?
+  • If partial or none, is there a partner or mitigation path?
+Step 4 — Score each of the 8 dimensions with evidence. Justify every score with an exact quote and page.
+Step 5 — Identify advantages (min 5), disadvantages (min 5), all rejection reasons, all acceptance boosters.
+Step 6 — Write bilingual summaries (Arabic primary for government RFPs).
+Step 7 — Output the JSON exactly as specified below.
+
+CRITICAL RULES:
+- Cite [PAGE N] markers for every finding — never invent page numbers
+- Do NOT fabricate Entropy capabilities, certifications, or client names beyond the profile above
+- Be EXHAUSTIVE — read every table row, every Arabic section, every requirement. Missing a requirement is an analysis failure.
+- technical_requirements: ALL requirements — functional, non-functional, integration, security, SLA, training, maintenance
+- mandatory_requirements: EVERY mandatory/obligatory/إلزامي item
+- advantages + disadvantages: minimum 5 each; specific to this RFP, not generic
+- acceptance_boosters: concrete actions Entropy must take in THIS bid to win
+- analyst_confidence: honest; lower if OCR is poor, scope is vague, or Arabic is unclear
+- For Saudi government RFPs: reference Vision 2030 alignment, NDMO relevance, PDPL compliance in summaries
+
+Return ONLY a valid JSON object — no markdown, no backticks, no explanation outside the JSON:
 
 {
   "entities": {
@@ -1047,7 +1369,7 @@ Return ONLY a valid JSON object — no markdown, no backticks, no explanation:
         "page": <number | null>,
         "quote": "<exact quote from document>",
         "entropy_can_fulfill": <true | false | "partial">,
-        "fulfillment_notes": "<how Entropy fulfills or why it cannot>"
+        "fulfillment_notes": "<how Entropy fulfills using which product/pillar, or why it cannot>"
       }
     ],
     "mandatory_requirements": [
@@ -1056,19 +1378,40 @@ Return ONLY a valid JSON object — no markdown, no backticks, no explanation:
         "page": <number | null>,
         "quote": "<exact quote>",
         "is_blocker": <true | false>,
-        "blocker_reason": "<why this blocks us | null>"
+        "blocker_reason": "<why this blocks Entropy | null>"
       }
     ]
+  },
+  "dimension_scores": {
+    "d1_sector_fit": <0-20>,
+    "d2_domain_alignment": <0-25>,
+    "d3_ndmo_governance": <0-15>,
+    "d4_ai_genai": <0-15>,
+    "d5_arabic_language": <0-10>,
+    "d6_product_fit": <0-5>,
+    "d7_scope_feasibility": <0-5>,
+    "d8_compliance_eligibility": <0-5>,
+    "total": <0-100>,
+    "decision_recommendation": "<GO | CONDITIONAL_GO | WATCH | NO_GO>",
+    "d1_rationale": "<quote + justification>",
+    "d2_rationale": "<quote + justification>",
+    "d3_rationale": "<quote + justification>",
+    "d4_rationale": "<quote + justification>",
+    "d5_rationale": "<quote + justification>",
+    "d6_rationale": "<quote + justification>",
+    "d7_rationale": "<quote + justification>",
+    "d8_rationale": "<quote + justification>"
   },
   "advantages": [
     {
       "title_en": "<string>",
       "title_ar": "<string>",
-      "description_en": "<detailed explanation>",
+      "description_en": "<detailed explanation tied to specific Entropy product/pillar/success story>",
       "description_ar": "<شرح تفصيلي>",
-      "evidence": "<exact quote>",
+      "evidence": "<exact quote from RFP>",
       "page": <number | null>,
-      "impact": "<HIGH | MEDIUM | LOW>"
+      "impact": "<HIGH | MEDIUM | LOW>",
+      "relevant_success_story": "<MOI DMO | RCU Audit | Monsha'at | Agentic Analytics | Sovereign Platform | null>"
     }
   ],
   "disadvantages": [
@@ -1090,16 +1433,16 @@ Return ONLY a valid JSON object — no markdown, no backticks, no explanation:
       "evidence": "<exact quote>",
       "page": <number | null>,
       "can_mitigate": <true | false>,
-      "mitigation_strategy": "<concrete plan | null>"
+      "mitigation_strategy": "<concrete plan including which partner to bring | null>"
     }
   ],
   "acceptance_boosters": [
     {
-      "booster_en": "<what helps us win>",
-      "booster_ar": "<ما يساعد على القبول>",
+      "booster_en": "<what helps Entropy win — specific to this RFP>",
+      "booster_ar": "<ما يساعد على الفوز>",
       "evidence": "<what in the RFP makes this relevant>",
       "page": <number | null>,
-      "action_required": "<what Entropy must do/highlight>"
+      "action_required": "<exact action Entropy must take: which product to highlight, which success story to reference, which partner to mention>"
     }
   ],
   "red_flags": [
@@ -1108,7 +1451,7 @@ Return ONLY a valid JSON object — no markdown, no backticks, no explanation:
       "severity": "<CRITICAL | MAJOR | MINOR>",
       "title_en": "<string>",
       "title_ar": "<string>",
-      "description_en": "<full explanation>",
+      "description_en": "<full explanation with mitigation path>",
       "description_ar": "<شرح كامل>",
       "evidence": "<exact quote>",
       "page": <number | null>
@@ -1125,47 +1468,40 @@ Return ONLY a valid JSON object — no markdown, no backticks, no explanation:
     }
   ],
   "capability_signals": ["<capability keyword found in document>"],
-  "missing_capabilities": ["<what the RFP needs that Entropy lacks>"],
+  "missing_capabilities": ["<what the RFP needs that Entropy lacks — be honest>"],
   "company_fit": {
     "overall_fit": "<STRONG | MODERATE | WEAK | NO_FIT>",
-    "fit_explanation_en": "<detailed explanation of why Entropy fits or doesn't fit this RFP>",
-    "fit_explanation_ar": "<شرح تفصيلي لمدى ملاءمة إنتروبي لهذا الطلب>",
+    "fit_explanation_en": "<detailed explanation grounded in Entropy's actual capabilities and this RFP's specific requirements>",
+    "fit_explanation_ar": "<شرح تفصيلي لمدى ملاءمة إنتروبي لهذا الطلب مبني على القدرات الفعلية>",
     "requirements_coverage": [
       {
         "requirement": "<exact requirement text from RFP>",
         "page": <number | null>,
-        "entropy_capability": "<which Entropy capability covers this | null>",
+        "entropy_capability": "<specific Entropy product or pillar that covers this | null>",
         "coverage": "<FULL | PARTIAL | NONE>",
-        "notes": "<how Entropy covers it, or why it cannot>"
+        "notes": "<how Entropy covers it using which product/pillar/success story, or why it cannot>"
       }
     ],
-    "field_alignment": "<how well Entropy's AI/data field matches the RFP domain>",
+    "field_alignment": "<how well Entropy's AI/data field matches the RFP domain — cite specific matches>",
     "competitive_position": "<STRONG | COMPETITIVE | WEAK>",
     "win_probability": "<HIGH | MEDIUM | LOW>"
   },
-  "summary_ar": "<5-7 sentence Arabic summary covering scope, Entropy fit, key risks>",
-  "summary_en": "<5-7 sentence English summary covering scope, Entropy fit, key risks>",
+  "recommended_positioning": {
+    "lead_service_pillar": "<Pillar 1: Data & AI Foundations | Pillar 2: AI & ML Technologies | Pillar 3: AI & Analytics Platforms>",
+    "products_to_highlight": ["<Hydrogen | Axiom | Yameen>"],
+    "success_stories_to_reference": ["<MOI DMO | RCU Audit | Monsha'at | Agentic Analytics | Sovereign Platform>"],
+    "key_differentiators": ["<Arabic-native NLP | NDMO expertise | Saudi regulatory knowledge | Hydrogen agents | Axiom agentic analytics>"],
+    "vision_2030_angle": "<how to position this bid within Vision 2030 — specific program or KPI to reference>"
+  },
+  "summary_ar": "<5-7 sentence Arabic summary: scope, Entropy fit, key risks, Vision 2030 alignment, recommended action>",
+  "summary_en": "<5-7 sentence English summary: scope, Entropy fit, key risks, recommended action>",
   "analyst_confidence": <0.0-1.0>,
-  "analyst_notes": "<additional observations about the RFP or Entropy's position>"
+  "analyst_notes": "<any observations about the RFP quality, ambiguities, or strategic considerations not captured elsewhere>"
 }
 
 Red flag codes: MANDATORY_CERT_NOT_HELD, DATA_RESIDENCY_OUTSIDE_KSA, LOCAL_CONTENT_HIGH,
 SECURITY_CLEARANCE_REQUIRED, UNREALISTIC_TIMELINE, PDPL_CONFLICT, CONFLICT_OF_INTEREST,
 BUDGET_TOO_SMALL, SCOPE_MISMATCH, HIGH_COMPETITION_RISK, GPU_INFRA_REQUIRED, SOLE_SOURCE_SPEC.
-
-RULES:
-- Take your time. Read every word. Think carefully before writing output.
-- company_fit.requirements_coverage: list EVERY requirement from the RFP and map it to an Entropy capability. This is the most important part.
-- Be EXHAUSTIVE — read every page, every table, every section. Missing a requirement is a failure.
-- technical_requirements: ALL requirements — functional, non-functional, integration, security, performance, SLA, training, maintenance.
-- mandatory_requirements: EVERY mandatory/obligatory/إلزامي requirement, even if repeated.
-- Tables contain critical requirements — read them line by line.
-- Arabic: read with full precision. Translate key Arabic quotes in notes.
-- advantages and disadvantages: minimum 5 items each. Be specific, not generic.
-- rejection_reasons: exhaustive — certifications, timeline, local content, data residency, budget, scope, compliance.
-- acceptance_boosters: specific actions Entropy must take in the bid to win.
-- analyst_confidence: honest score. Lower if text is unclear.
-- Do NOT fabricate capabilities or certifications Entropy doesn't have.
 """
 
 
@@ -1501,92 +1837,184 @@ def _merge_llm_results(
 
 def _compute_scores(entities: dict, flags: dict, capability_result: dict) -> dict:
     """
-    Compute three scoring dimensions calibrated for Entropy:
+    Compute the 8-dimension qualification score per Entropy's RFP Intelligence framework.
 
-    Technical Fit  (0–40):  capability match + past work relevance + tech stack + cert score
-    Business Fit   (0–30):  project value + strategic fit + margin + sales cycle
-    Risk Penalty   (0–30):  flags, missing certs, local content, timeline
+    D1  Sector & Client Fit        (0–20)
+    D2  Technical Domain Alignment (0–25)
+    D3  NDMO / Data Governance     (0–15)
+    D4  AI / Generative AI         (0–15)
+    D5  Arabic Language            (0–10)
+    D6  Entropy Product Fit        (0–5)
+    D7  Scope Feasibility          (0–5)
+    D8  Compliance & Eligibility   (0–5)
+    ─────────────────────────────────────
+    Total                          (0–100)
+
+    Decision thresholds:
+      GO              ≥ 80, no major+ flags
+      REVIEW          45–79 (or has major flags)
+      NO_GO           < 45, or any CRITICAL flag
     """
+    red_flags = flags.get("red", [])
+    matched_caps = capability_result.get("matched", [])
 
-    # ── Technical Fit ──────────────────────────────────────────────────────────
-    capability_score = capability_result.get("score", 0)          # 0-15
-
-    # Past work: existing client relationship adds points
     issuing_agency = entities.get("issuing_agency", "")
     is_existing_client = any(
         c.lower() in issuing_agency.lower() or issuing_agency.lower() in c.lower()
         for c in ENTROPY_EXISTING_CLIENTS
     ) if issuing_agency else False
-    past_similarity = 10.0 if is_existing_client else 7.0         # 0-10
+    is_strategic_agency = any(
+        a.lower() in issuing_agency.lower() or issuing_agency.lower() in a.lower()
+        for a in STRATEGIC_AGENCIES
+    ) if issuing_agency else False
 
-    # Tech stack: partner tools mentioned
-    tech_stack = 6.0                                                # 0-8 baseline
-    deployment = entities.get("deployment_model", "")
-    if deployment == "on_prem":
-        tech_stack = 7.0  # Entropy explicitly supports on-prem
-
-    # Certifications: penalty if missing critical certs
-    certs_penalty = sum(
-        3 if f.get("severity") == "CRITICAL" else 1
-        for f in flags.get("red", [])
-        if f.get("code") == "MANDATORY_CERT_NOT_HELD"
-    )
-    cert_score = max(0.0, 7.0 - certs_penalty)                    # 0-7
-
-    technical = min(40.0, capability_score + past_similarity + tech_stack + cert_score)
-
-    # ── Business Fit ───────────────────────────────────────────────────────────
-    # Project value bracket scoring
-    value_sar = entities.get("estimated_value_sar", 0)
-    if value_sar == 0:
-        project_value = 8.0  # Unknown = assume average
-    elif value_sar < 500_000:
-        project_value = 4.0  # Too small
-    elif value_sar < 2_000_000:
-        project_value = 7.0  # Small but OK
-    elif value_sar < 10_000_000:
-        project_value = 10.0  # Sweet spot
-    elif value_sar < 50_000_000:
-        project_value = 9.0  # Large but feasible
-    else:
-        project_value = 6.0  # Very large — delivery risk
-
-    # Strategic account: existing client = 10, strategic target = 7, unknown = 4
+    # ── D1: Sector & Client Fit (0–20) ────────────────────────────────────────
     if is_existing_client:
-        strategic_account = 10.0
+        d1 = 19.0   # Existing client — strongest signal
+    elif is_strategic_agency:
+        d1 = 15.0   # Strategic target (Vision 2030, key gov body)
     elif issuing_agency:
-        strategic_account = 7.0
+        d1 = 10.0   # Identified Saudi entity but not on strategic list
     else:
-        strategic_account = 4.0
+        d1 = 5.0    # Unknown agency
 
-    margin = 6.0   # Saudi gov sector: reasonable margins
-    sales_cycle = 4.0  # Gov procurement takes time
+    # ── D2: Technical Domain Alignment (0–25) ─────────────────────────────────
+    has_scope_mismatch = any(f.get("code") == "SCOPE_MISMATCH" for f in red_flags)
+    if has_scope_mismatch:
+        d2 = 0.0    # Instant disqualifier: cybersecurity, clinical, hardware
+    else:
+        cap_score = capability_result.get("score", 0)   # 0–15 normalized score
+        # Scale from 0-15 capability score → 0-25 dimension score
+        d2 = min(25.0, cap_score * (25.0 / 15.0))
 
-    business = min(30.0, project_value + strategic_account + margin + sales_cycle)
+    # ── D3: NDMO / Data Governance (0–15) ────────────────────────────────────
+    has_data_mgmt = "data_management" in matched_caps
+    required_certs = entities.get("required_certs", [])
+    has_ndmo_req = any(c.upper() in {"NDMO", "NDI"} for c in required_certs)
 
-    # ── Risk Penalty ───────────────────────────────────────────────────────────
-    red_flags = flags.get("red", [])
+    if has_ndmo_req and has_data_mgmt:
+        d3 = 14.0   # Explicitly required, and Entropy has proven NDMO track record
+    elif has_ndmo_req:
+        d3 = 11.0   # Explicitly required; Entropy's certifications cover it
+    elif has_data_mgmt:
+        d3 = 9.0    # Data management present, NDMO implied
+    elif any(c in matched_caps for c in {"data_engineering", "data_platform"}):
+        d3 = 5.0    # Data present but governance not a priority
+    else:
+        d3 = 1.0    # No data governance element
+
+    # ── D4: AI / Generative AI (0–15) ─────────────────────────────────────────
+    has_genai = "generative_ai" in matched_caps
+    has_agents = "agentic_ai" in matched_caps
+    has_ml = "machine_learning" in matched_caps or "time_series_forecasting" in matched_caps
+    has_analytics = "analytics_bi" in matched_caps or "document_intelligence" in matched_caps
+
+    if (has_genai or has_agents) and has_ml:
+        d4 = 14.0   # Full AI stack: GenAI/agents + ML
+    elif has_genai or has_agents:
+        d4 = 12.0   # Explicit GenAI or agentic AI
+    elif has_ml:
+        d4 = 9.0    # AI/ML models but not generative
+    elif has_analytics:
+        d4 = 5.0    # BI/analytics; AI mentioned as desirable but not core
+    else:
+        d4 = 1.0    # No AI requirement
+
+    # ── D5: Arabic Language (0–10) ────────────────────────────────────────────
+    has_arabic_nlp = "arabic_nlp" in matched_caps
+    primary_lang = entities.get("primary_language", "")
+
+    if has_arabic_nlp and primary_lang == "arabic":
+        d5 = 9.5    # Arabic-first + NLP processing explicitly required
+    elif has_arabic_nlp:
+        d5 = 8.0    # Arabic NLP required
+    elif primary_lang == "arabic":
+        d5 = 6.0    # Arabic deliverables required (no NLP specifics)
+    elif primary_lang == "mixed":
+        d5 = 4.0    # Bilingual
+    else:
+        d5 = 2.0    # English-only or unspecified
+
+    # ── D6: Entropy Product Fit (0–5) ─────────────────────────────────────────
+    # Hydrogen: agentic_ai, generative_ai → agent orchestration
+    # Axiom: analytics_bi, data_platform, agentic_ai → agentic analytics
+    # Yameen: speech_recognition, arabic_nlp → meeting intelligence
+    hydrogen_fit = any(c in matched_caps for c in {"agentic_ai", "generative_ai"})
+    axiom_fit = any(c in matched_caps for c in {"analytics_bi", "data_platform", "agentic_ai"})
+    yameen_fit = any(c in matched_caps for c in {"speech_recognition", "arabic_nlp"})
+
+    product_matches = sum([hydrogen_fit, axiom_fit, yameen_fit])
+    if product_matches >= 2:
+        d6 = 5.0    # Multiple product fits
+    elif product_matches == 1:
+        d6 = 4.0    # Single product fit
+    elif any(c in matched_caps for c in {"machine_learning", "data_management", "document_intelligence"}):
+        d6 = 2.0    # Adaptable; requires customization
+    else:
+        d6 = 0.0    # No product fit; pure services
+
+    # ── D7: Scope Feasibility (0–5) ───────────────────────────────────────────
+    duration = entities.get("duration_months", 0)
+    value_sar = entities.get("estimated_value_sar", 0)
+
+    if 0 < duration < 3:
+        d7 = 1.0    # Very tight — delivery risk is high
+    elif 0 < duration < 6:
+        d7 = 3.0    # Tight but achievable
+    elif 12 <= duration <= 24:
+        d7 = 5.0    # Sweet spot per Entropy's optimal delivery window
+    elif duration > 36:
+        d7 = 2.0    # Very long engagement — delivery risk
+    else:
+        d7 = 3.5    # Unknown or borderline
+
+    if value_sar > 50_000_000:
+        d7 = min(d7, 2.0)   # Very large — may need consortium approach
+
+    # ── D8: Compliance & Eligibility (0–5) ────────────────────────────────────
+    critical_cert_flags = [
+        f for f in red_flags
+        if f.get("code") == "MANDATORY_CERT_NOT_HELD" and f.get("severity") == "CRITICAL"
+    ]
+    major_cert_flags = [
+        f for f in red_flags
+        if f.get("code") == "MANDATORY_CERT_NOT_HELD" and f.get("severity") == "MAJOR"
+    ]
+
+    if has_scope_mismatch:
+        d8 = 0.0    # Definitionally ineligible
+    elif critical_cert_flags:
+        d8 = 1.0    # Significant eligibility barrier (SAMA CSF, NCA ECC, PCI-DSS)
+    elif major_cert_flags:
+        d8 = 3.0    # Minor barrier — addressable via certified partner
+    else:
+        d8 = 5.0    # No hard eligibility barriers
+
+    # ── Total score (0–100) ───────────────────────────────────────────────────
+    total = d1 + d2 + d3 + d4 + d5 + d6 + d7 + d8
+
+    # ── Map to legacy 3-bucket DB columns ────────────────────────────────────
+    # technical_fit ← D2 + D3 + D4 + D6 (domain, NDMO, AI, product; max 60 → scale to 40)
+    technical = min(40.0, (d2 + d3 + d4 + d6) * (40.0 / 60.0))
+    # business_fit ← D1 + D5 (sector + Arabic; max 30)
+    business = min(30.0, d1 + d5)
+    # risk_penalty ← flag-based + feasibility/compliance shortfall
     critical_count = sum(1 for f in red_flags if f.get("severity") == "CRITICAL")
     major_count = sum(1 for f in red_flags if f.get("severity") == "MAJOR")
     minor_count = len(red_flags) - critical_count - major_count
+    flag_penalty = min(20.0, critical_count * 8 + major_count * 3 + minor_count * 1)
+    feasibility_shortfall = max(0.0, 10.0 - (d7 + d8))
+    risk = min(30.0, flag_penalty + feasibility_shortfall)
 
-    risk = min(30.0, critical_count * 12 + major_count * 6 + minor_count * 2)
-
-    # Additional risk modifiers
-    if entities.get("data_outside_ksa"):
-        risk = min(30.0, risk + 8)
-    lc_pct = entities.get("local_content_pct", 0)
-    if lc_pct > 70:
-        risk = min(30.0, risk + 5)
-    elif lc_pct > 50:
-        risk = min(30.0, risk + 3)
-    duration = entities.get("duration_months", 0)
-    if 0 < duration < 3:
-        risk = min(30.0, risk + 4)
-
-    # Confidence: lower when we have little info
-    matched_caps = capability_result.get("matched", [])
-    confidence = 0.90 if len(matched_caps) >= 3 else (0.75 if len(matched_caps) >= 1 else 0.60)
+    # Confidence: higher when more capability signals found + agency identified
+    if len(matched_caps) >= 4:
+        confidence = 0.92
+    elif len(matched_caps) >= 2:
+        confidence = 0.80
+    elif len(matched_caps) >= 1:
+        confidence = 0.70
+    else:
+        confidence = 0.55
 
     # Low-confidence sections
     low_conf = []
@@ -1594,13 +2022,25 @@ def _compute_scores(entities: dict, flags: dict, capability_result: dict) -> dic
         low_conf.append("scope — no capability keywords matched")
     if not issuing_agency:
         low_conf.append("agency — could not identify issuing body")
+    if not entities.get("duration_months"):
+        low_conf.append("timeline — project duration not found")
 
     return {
         "technical": round(technical, 1),
         "business": round(business, 1),
         "risk": round(risk, 1),
+        "total": round(total, 1),
         "confidence": confidence,
         "low_confidence_sections": low_conf,
+        # 8 dimension scores (for explanation display)
+        "d1_sector": round(d1, 1),
+        "d2_domain": round(d2, 1),
+        "d3_ndmo": round(d3, 1),
+        "d4_ai": round(d4, 1),
+        "d5_arabic": round(d5, 1),
+        "d6_product": round(d6, 1),
+        "d7_feasibility": round(d7, 1),
+        "d8_compliance": round(d8, 1),
     }
 
 
