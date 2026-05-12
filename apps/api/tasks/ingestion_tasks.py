@@ -358,9 +358,14 @@ async def _process_rfp_async(rfp_id: str, task) -> dict:
                     await vector_store.upsert_points("rfp_chunks", points)
             flags_data = await _detect_flags(sections, entities)
 
+            # Knowledge matching — find relevant past proposals, case studies, compliance docs
+            await publish_step("knowledge_matching", "running")
+            knowledge_context = await _search_knowledge_base(db, all_text, sections)
+            await publish_step("knowledge_matching", "done", f"{len(knowledge_context)} relevant knowledge docs found")
+
             # Claude deep analysis — enriches entity extraction and flag detection
             await publish_step("flag_analysis", "running", "Running Claude deep analysis…")
-            llm_result = await _llm_analyze(all_text)
+            llm_result = await _llm_analyze(all_text, knowledge_context)
             if llm_result:
                 entities, flags_data = _merge_llm_results(entities, flags_data, llm_result)
 
@@ -584,9 +589,20 @@ def _extract_pdf_sync(content: bytes) -> str:
     pages_text = []
     with pdfplumber.open(io.BytesIO(content)) as pdf:
         for i, page in enumerate(pdf.pages, start=1):
+            parts = []
+            # Extract regular text
             text = page.extract_text() or ""
             if text.strip():
-                pages_text.append(f"[PAGE {i}]\n{text}")
+                parts.append(text)
+            # Extract tables — each cell may contain requirements
+            tables = page.extract_tables() or []
+            for table in tables:
+                for row in table:
+                    row_text = " | ".join(cell.strip() for cell in row if cell and cell.strip())
+                    if row_text:
+                        parts.append(row_text)
+            if parts:
+                pages_text.append(f"[PAGE {i}]\n" + "\n".join(parts))
     return "\n\n".join(pages_text)
 
 
@@ -594,7 +610,18 @@ def _extract_docx_sync(content: bytes) -> str:
     import io
     import docx
     doc = docx.Document(io.BytesIO(content))
-    return "\n".join(p.text for p in doc.paragraphs)
+    parts = []
+    # Extract paragraphs
+    for p in doc.paragraphs:
+        if p.text.strip():
+            parts.append(p.text)
+    # Extract tables
+    for table in doc.tables:
+        for row in table.rows:
+            row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
+            if row_text:
+                parts.append(row_text)
+    return "\n".join(parts)
 
 
 # ── Section Detection & Classification ────────────────────────────────────────
@@ -1092,16 +1119,114 @@ SECURITY_CLEARANCE_REQUIRED, UNREALISTIC_TIMELINE, PDPL_CONFLICT, CONFLICT_OF_IN
 BUDGET_TOO_SMALL, SCOPE_MISMATCH, HIGH_COMPETITION_RISK, GPU_INFRA_REQUIRED, SOLE_SOURCE_SPEC.
 
 RULES:
-- Be EXHAUSTIVE — analyze every page, every section, every requirement
-- technical_requirements and mandatory_requirements must be COMPLETE — include ALL requirements found
-- advantages and disadvantages must each have at least 3 items if they exist
-- rejection_reasons must list EVERY reason that could cause rejection, even minor ones
-- Only cite evidence you can directly quote from [PAGE N] marked text
-- Do NOT fabricate capabilities or certifications Entropy doesn't have
+- Be EXHAUSTIVE — read every single word on every page. Missing a requirement is unacceptable.
+- technical_requirements: include ALL requirements — functional, non-functional, integration, security, performance, SLA, reporting, training, maintenance, etc.
+- mandatory_requirements: include EVERY mandatory/obligatory/إلزامي requirement, even if repeated across sections.
+- Carefully read tables — requirements in tabular form are often the most important.
+- Arabic text: read and analyze Arabic requirements with full precision. Translate key quotes to English in fulfillment_notes.
+- advantages and disadvantages: minimum 5 items each. Be specific, not generic.
+- rejection_reasons: exhaustive — include certification gaps, timeline issues, local content, data residency, budget mismatches, scope gaps, and compliance blockers.
+- acceptance_boosters: specific actionable items Entropy must highlight in the bid.
+- analyst_confidence: be honest. If text is unclear or partial, lower the confidence score.
+- summary_ar and summary_en: 5-7 sentences covering scope, key requirements, risks, and fit score.
+- Only cite evidence you can directly quote from [PAGE N] marked text.
+- Do NOT fabricate capabilities or certifications Entropy doesn't have.
+- Take your time. Thoroughness over speed.
 """
 
 
-async def _llm_analyze(all_text: str) -> dict:
+async def _search_knowledge_base(db, all_text: str, sections: list[dict]) -> list[dict]:
+    """Search knowledge docs for relevant content using keyword matching.
+
+    Works without Qdrant — queries the database directly for knowledge docs
+    whose titles or content keywords match the RFP scope.
+    Returns up to 10 most relevant docs with excerpts.
+    """
+    try:
+        from models.knowledge_doc import KnowledgeDoc
+        from sqlalchemy import select, or_
+        from services.storage import StorageService
+
+        # Extract key terms from sections and full text for matching
+        scope_keywords = set()
+        for section in sections:
+            words = (section.get("content", "") + " " + section.get("title", "")).split()
+            for word in words:
+                if len(word) > 4:
+                    scope_keywords.add(word.lower()[:20])
+
+        # Query all non-deleted knowledge docs
+        result = await db.execute(
+            select(KnowledgeDoc).where(
+                KnowledgeDoc.is_deleted == False,  # noqa: E712
+                KnowledgeDoc.is_indexed == True,
+            ).limit(200)
+        )
+        all_docs = result.scalars().all()
+
+        if not all_docs:
+            return []
+
+        # Score each doc by keyword overlap with RFP text
+        scored = []
+        rfp_lower = all_text[:50000].lower()
+        for doc in all_docs:
+            score = 0
+            title_lower = (doc.title or "").lower()
+            tags = doc.tags_json or ""
+
+            # Title keyword match
+            for word in title_lower.split():
+                if len(word) > 3 and word in rfp_lower:
+                    score += 2
+
+            # Tags match
+            for word in tags.lower().split():
+                if len(word) > 3 and word in rfp_lower:
+                    score += 1
+
+            # Boost WIN outcomes
+            if doc.outcome == "WIN":
+                score += 3
+
+            # Boost capability/case study docs
+            if doc.doc_type in ("CAPABILITY", "CASE_STUDY", "PAST_PROPOSAL"):
+                score += 1
+
+            if score > 0:
+                scored.append((score, doc))
+
+        # Sort by score descending, take top 10
+        scored.sort(key=lambda x: x[0], reverse=True)
+        top_docs = scored[:10]
+
+        # Load excerpts from storage
+        storage = StorageService.get_instance()
+        matches = []
+        for _, doc in top_docs:
+            excerpt = ""
+            try:
+                raw = await storage.download_file(doc.storage_path)
+                extracted = await _extract_text(raw, "application/pdf", doc.storage_path)
+                excerpt = extracted[:800]
+            except Exception:
+                pass
+            matches.append({
+                "title": doc.title,
+                "doc_type": doc.doc_type,
+                "outcome": doc.outcome,
+                "year": doc.year,
+                "excerpt": excerpt,
+            })
+
+        return matches
+
+    except Exception as exc:
+        logger.warning("Knowledge base search failed", error=str(exc))
+        return []
+
+
+async def _llm_analyze(all_text: str, knowledge_context: list[dict] | None = None) -> dict:
     """Send the full document text to Claude for deep forensic analysis.
 
     Returns a dict with keys: entities, advantages, disadvantages, rejection_reasons,
@@ -1114,14 +1239,33 @@ async def _llm_analyze(all_text: str) -> dict:
         from services.llm_client import make_anthropic_client
         client = make_anthropic_client()
 
-        # Truncate to fit context — 80k chars covers most RFPs
-        text_excerpt = all_text[:80000]
+        # Claude Opus supports ~200K token context — use up to 150K chars for thorough analysis
+        text_excerpt = all_text[:150000]
+
+        # Build knowledge context section if available
+        knowledge_section = ""
+        if knowledge_context:
+            knowledge_section = "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nRELEVANT KNOWLEDGE BASE MATCHES\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            for doc in knowledge_context:
+                knowledge_section += f"\n[{doc['doc_type']}] {doc['title']}"
+                if doc.get('outcome'):
+                    knowledge_section += f" (Outcome: {doc['outcome']})"
+                if doc.get('excerpt'):
+                    knowledge_section += f"\nExcerpt: {doc['excerpt'][:500]}\n"
+            knowledge_section += "\nUse these matches to inform acceptance_boosters and rejection_reasons.\n"
+
+        user_message = (
+            f"Document text:\n\n{text_excerpt}"
+            f"{knowledge_section}"
+            f"\n\nIMPORTANT: Analyze EVERY requirement on EVERY page. Be exhaustive. "
+            f"Focus on each word carefully. Do not stop until you have covered the entire document."
+        )
 
         response = await client.messages.create(
             model=settings.primary_llm_model,
-            max_tokens=8192,
+            max_tokens=16000,
             system=_LLM_ANALYSIS_PROMPT,
-            messages=[{"role": "user", "content": f"Document text:\n\n{text_excerpt}"}],
+            messages=[{"role": "user", "content": user_message}],
         )
 
         raw = response.content[0].text.strip()
@@ -1331,16 +1475,16 @@ def _compute_scores(entities: dict, flags: dict, capability_result: dict) -> dic
 # ── Chunking & Embedding ───────────────────────────────────────────────────────
 
 def _chunk_text(text: str, rfp_id: str, sections: list[dict]) -> list[dict]:
-    """Split text into ~600-word chunks with 100-word overlap.
+    """Split text into ~800-word chunks with 150-word overlap.
     Extracts page_number from [PAGE N] markers in each chunk's text.
     """
     import re as _re
     chunks = []
     words = text.split()
-    chunk_size = 600
-    overlap = 100
+    chunk_size = 800
+    overlap = 150
     step = chunk_size - overlap
-    max_chunks = 30
+    max_chunks = 100
 
     for i in range(0, len(words), step):
         chunk_words = words[i: i + chunk_size]
