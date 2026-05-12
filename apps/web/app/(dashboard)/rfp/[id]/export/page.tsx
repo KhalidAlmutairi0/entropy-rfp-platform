@@ -46,7 +46,7 @@ export default function ExportPage() {
   const [sections, setSections] = useState<ProposalSection[]>([])
   const [loadingSections, setLoadingSections] = useState(true)
 
-  const [selectedFormat, setSelectedFormat] = useState('pdf')
+  const [selectedFormat, setSelectedFormat] = useState('pptx')
   const [selectedSections, setSelectedSections] = useState<string[]>([])
   const [includeCompanyBranding, setIncludeCompanyBranding] = useState(true)
   const [includeTableOfContents, setIncludeTableOfContents] = useState(true)
@@ -100,7 +100,7 @@ export default function ExportPage() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `proposal_${rfpId}.${selectedFormat === 'pdf' ? 'docx' : selectedFormat}`
+      a.download = `proposal_${rfpId}.${selectedFormat}`
       a.click()
       URL.revokeObjectURL(url)
     } catch {

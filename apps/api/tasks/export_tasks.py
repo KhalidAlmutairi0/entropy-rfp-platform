@@ -137,4 +137,80 @@ def _docx_to_pdf(docx_bytes: bytes) -> bytes:
     return docx_bytes
 
 
+async def _generate_pptx(proposal, config: dict, language: str) -> bytes:
+    """Generate a PPTX presentation from proposal sections using python-pptx."""
+    import io
+    from pptx import Presentation
+    from pptx.util import Inches, Pt
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
+
+    prs = Presentation()
+    prs.slide_width = Inches(13.33)
+    prs.slide_height = Inches(7.5)
+
+    blank_layout = prs.slide_layouts[6]  # blank
+    title_layout = prs.slide_layouts[0]  # title slide
+
+    PRIMARY = RGBColor(0x48, 0x65, 0x81)
+    WHITE = RGBColor(0xFF, 0xFF, 0xFF)
+    DARK = RGBColor(0x1E, 0x29, 0x3B)
+
+    def _add_bg(slide, color: RGBColor):
+        from pptx.util import Emu
+        fill = slide.background.fill
+        fill.solid()
+        fill.fore_color.rgb = color
+
+    def _add_text_box(slide, text, left, top, width, height, font_size, bold=False, color=DARK, align=PP_ALIGN.LEFT):
+        txBox = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
+        tf = txBox.text_frame
+        tf.word_wrap = True
+        p = tf.paragraphs[0]
+        p.alignment = align
+        run = p.add_run()
+        run.text = text
+        run.font.size = Pt(font_size)
+        run.font.bold = bold
+        run.font.color.rgb = color
+
+    # ── Cover slide ─────────────────────────────────────────────────────────
+    if config.get("include_cover", True):
+        slide = prs.slides.add_slide(blank_layout)
+        _add_bg(slide, PRIMARY)
+        _add_text_box(slide, "Entropy.sa", 1, 2.5, 11, 1.2, 36, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+        _add_text_box(slide, "Technical Proposal", 1, 3.9, 11, 0.8, 22, color=WHITE, align=PP_ALIGN.CENTER)
+
+    # ── Section slides ───────────────────────────────────────────────────────
+    for idx, section in enumerate(proposal.sections, 1):
+        title_text = section.title_en if language == "en" else (section.title_ar or section.title_en or f"Section {idx}")
+        content_text = section.content_en if language == "en" else (section.content_ar or section.content_en or "")
+
+        if config.get("include_section_numbers", True):
+            title_text = f"{idx}. {title_text}"
+
+        slide = prs.slides.add_slide(blank_layout)
+        _add_bg(slide, WHITE)
+
+        # Title bar
+        bar = slide.shapes.add_shape(
+            1,  # MSO_SHAPE_TYPE.RECTANGLE
+            Inches(0), Inches(0), Inches(13.33), Inches(1.1)
+        )
+        bar.fill.solid()
+        bar.fill.fore_color.rgb = PRIMARY
+        bar.line.fill.background()
+
+        _add_text_box(slide, title_text, 0.3, 0.1, 12.5, 0.9, 20, bold=True, color=WHITE)
+
+        # Content (truncate to ~800 chars to fit slide)
+        body = (content_text or "").strip()[:800]
+        if body:
+            _add_text_box(slide, body, 0.5, 1.3, 12.3, 5.8, 14, color=DARK)
+
+    output = io.BytesIO()
+    prs.save(output)
+    return output.getvalue()
+
+
 # Public alias used by the BackgroundTasks fallback in proposal.py when Celery is unavailable

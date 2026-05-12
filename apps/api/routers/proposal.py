@@ -292,14 +292,22 @@ async def download_proposal(
     if not proposal:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proposal not found")
 
-    from tasks.export_tasks import _generate_docx
     config = {"include_cover": True, "include_toc": True, "include_section_numbers": True}
-    docx_bytes = await _generate_docx(proposal, config, language)
 
-    filename = f"proposal_{rfp_id}.docx"
+    if format == "pptx":
+        from tasks.export_tasks import _generate_pptx
+        file_bytes = await _generate_pptx(proposal, config, language)
+        media_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        filename = f"proposal_{rfp_id}.pptx"
+    else:
+        from tasks.export_tasks import _generate_docx
+        file_bytes = await _generate_docx(proposal, config, language)
+        media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        filename = f"proposal_{rfp_id}.docx"
+
     return StreamingResponse(
-        iter([docx_bytes]),
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        iter([file_bytes]),
+        media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
