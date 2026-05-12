@@ -965,20 +965,27 @@ def _match_capabilities(sections: list[dict], full_text: str = "") -> dict:
 # ── Claude LLM Deep Analysis ───────────────────────────────────────────────────
 
 _LLM_ANALYSIS_PROMPT = """You are a senior bid qualification analyst for Entropy, a Saudi AI company.
-You receive the FULL text of a government tender (RFP/كراسة شروط) and must perform an exhaustive forensic analysis.
+You receive the FULL text of a government tender (RFP/كراسة شروط) and must perform a deep, deliberate forensic analysis.
+
+Take your time. Read every word carefully. Do not rush.
+Your primary task is to compare EVERY requirement in the RFP against Entropy's specific capabilities and field of work.
+For each requirement, ask yourself: "Can Entropy fulfill this? Partially? Not at all? Why?"
 
 The document text contains [PAGE N] markers. You MUST cite the exact page number for every finding.
 Never guess a page number — only cite pages that appear as [PAGE N] markers near the evidence.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-ENTROPY COMPANY PROFILE
+ENTROPY COMPANY PROFILE — MEMORIZE THIS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Company: Entropy — Saudi AI company
-Certifications HELD: NDMO, NDI
-Certifications NOT HELD (cause rejection if required): ISO 27001, ISO 9001, ISO 20000, PCI-DSS, SOC 2, SAMA CSF, NCA ECC, CITC
+Company: Entropy — Saudi AI company headquartered in Riyadh
+Field: Artificial Intelligence, Data Science, Arabic NLP, Agentic AI systems
 
-Core Capabilities:
-- Arabic NLP & NLU (core differentiator — weight 1.5x)
+Certifications HELD: NDMO (National Data Management Office), NDI
+Certifications NOT HELD (CRITICAL — causes automatic rejection if RFP requires them):
+  ISO 27001, ISO 9001, ISO 20000, PCI-DSS, SOC 2, SAMA CSF, NCA ECC, CITC
+
+Core Capabilities (compare each RFP requirement against these):
+- Arabic NLP & NLU: Arabic chatbots, Arabic text classification, Arabic OCR, dialect understanding (CORE STRENGTH — weight 1.5x)
 - Generative AI / LLMs / RAG (weight 1.3x)
 - Agentic AI / Multi-agent systems (weight 1.3x)
 - Data Management & Governance / NDMO compliance (weight 1.2x)
@@ -990,20 +997,31 @@ Core Capabilities:
 - Traditional ML, Deep Learning, MLOps (weight 1.0x)
 
 Technology Partners: Google Cloud / GCP, Microsoft Azure, Oracle, Dataiku, Databricks, Informatica, Groq, Turing
+Products: Hydrogen (Agentic AI platform), Yameen (Arabic meeting AI), Axiom (Data Analytics)
 
-Existing Clients: Ministry of Commerce, Digital Government Authority, Ministry of Interior,
+Existing Clients (strategic advantage if RFP is from same entity or sector):
+  Ministry of Commerce, Digital Government Authority, Ministry of Interior,
   Ministry of Industry & Mineral Resources, NHC, King Salman Global Academy,
   Monsha'at, Royal Saudi Land Forces, Saudi Irrigation Organization
 
-Cannot provide (infrastructure):
-- On-premise GPU clusters (can use client infra or cloud)
-- Physical hardware supply
+Cannot provide (will cause delivery failure):
+- On-premise GPU clusters or physical hardware
 - Networking/cabling/infrastructure installation
+- Non-AI software development (ERP, CRM, websites unrelated to AI)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-YOUR TASK — EXHAUSTIVE ANALYSIS
+YOUR TASK — DEEP COMPANY-TO-RFP COMPARISON
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Analyze EVERY requirement in the document. Do NOT summarize or skip sections.
+Step 1 — READ the entire document carefully from start to finish.
+Step 2 — For EVERY requirement found, map it to Entropy's capabilities:
+  • Does Entropy's field of work cover this requirement?
+  • Which specific capability handles it?
+  • Can it be fulfilled fully, partially, or not at all?
+  • What evidence from the RFP supports or blocks this?
+Step 3 — Build a complete picture of fit BEFORE writing any output.
+Step 4 — Output the JSON below with ALL findings populated.
+
+Analyze EVERY requirement. Do NOT summarize or skip sections.
 For each finding, cite the page number and an exact quote.
 
 Return ONLY a valid JSON object — no markdown, no backticks, no explanation:
@@ -1108,10 +1126,27 @@ Return ONLY a valid JSON object — no markdown, no backticks, no explanation:
   ],
   "capability_signals": ["<capability keyword found in document>"],
   "missing_capabilities": ["<what the RFP needs that Entropy lacks>"],
-  "summary_ar": "<3-5 sentence Arabic summary>",
-  "summary_en": "<3-5 sentence English summary>",
+  "company_fit": {
+    "overall_fit": "<STRONG | MODERATE | WEAK | NO_FIT>",
+    "fit_explanation_en": "<detailed explanation of why Entropy fits or doesn't fit this RFP>",
+    "fit_explanation_ar": "<شرح تفصيلي لمدى ملاءمة إنتروبي لهذا الطلب>",
+    "requirements_coverage": [
+      {
+        "requirement": "<exact requirement text from RFP>",
+        "page": <number | null>,
+        "entropy_capability": "<which Entropy capability covers this | null>",
+        "coverage": "<FULL | PARTIAL | NONE>",
+        "notes": "<how Entropy covers it, or why it cannot>"
+      }
+    ],
+    "field_alignment": "<how well Entropy's AI/data field matches the RFP domain>",
+    "competitive_position": "<STRONG | COMPETITIVE | WEAK>",
+    "win_probability": "<HIGH | MEDIUM | LOW>"
+  },
+  "summary_ar": "<5-7 sentence Arabic summary covering scope, Entropy fit, key risks>",
+  "summary_en": "<5-7 sentence English summary covering scope, Entropy fit, key risks>",
   "analyst_confidence": <0.0-1.0>,
-  "analyst_notes": "<additional observations>"
+  "analyst_notes": "<additional observations about the RFP or Entropy's position>"
 }
 
 Red flag codes: MANDATORY_CERT_NOT_HELD, DATA_RESIDENCY_OUTSIDE_KSA, LOCAL_CONTENT_HIGH,
@@ -1119,19 +1154,18 @@ SECURITY_CLEARANCE_REQUIRED, UNREALISTIC_TIMELINE, PDPL_CONFLICT, CONFLICT_OF_IN
 BUDGET_TOO_SMALL, SCOPE_MISMATCH, HIGH_COMPETITION_RISK, GPU_INFRA_REQUIRED, SOLE_SOURCE_SPEC.
 
 RULES:
-- Be EXHAUSTIVE — read every single word on every page. Missing a requirement is unacceptable.
-- technical_requirements: include ALL requirements — functional, non-functional, integration, security, performance, SLA, reporting, training, maintenance, etc.
-- mandatory_requirements: include EVERY mandatory/obligatory/إلزامي requirement, even if repeated across sections.
-- Carefully read tables — requirements in tabular form are often the most important.
-- Arabic text: read and analyze Arabic requirements with full precision. Translate key quotes to English in fulfillment_notes.
+- Take your time. Read every word. Think carefully before writing output.
+- company_fit.requirements_coverage: list EVERY requirement from the RFP and map it to an Entropy capability. This is the most important part.
+- Be EXHAUSTIVE — read every page, every table, every section. Missing a requirement is a failure.
+- technical_requirements: ALL requirements — functional, non-functional, integration, security, performance, SLA, training, maintenance.
+- mandatory_requirements: EVERY mandatory/obligatory/إلزامي requirement, even if repeated.
+- Tables contain critical requirements — read them line by line.
+- Arabic: read with full precision. Translate key Arabic quotes in notes.
 - advantages and disadvantages: minimum 5 items each. Be specific, not generic.
-- rejection_reasons: exhaustive — include certification gaps, timeline issues, local content, data residency, budget mismatches, scope gaps, and compliance blockers.
-- acceptance_boosters: specific actionable items Entropy must highlight in the bid.
-- analyst_confidence: be honest. If text is unclear or partial, lower the confidence score.
-- summary_ar and summary_en: 5-7 sentences covering scope, key requirements, risks, and fit score.
-- Only cite evidence you can directly quote from [PAGE N] marked text.
+- rejection_reasons: exhaustive — certifications, timeline, local content, data residency, budget, scope, compliance.
+- acceptance_boosters: specific actions Entropy must take in the bid to win.
+- analyst_confidence: honest score. Lower if text is unclear.
 - Do NOT fabricate capabilities or certifications Entropy doesn't have.
-- Take your time. Thoroughness over speed.
 """
 
 
@@ -1261,14 +1295,27 @@ async def _llm_analyze(all_text: str, knowledge_context: list[dict] | None = Non
             f"Focus on each word carefully. Do not stop until you have covered the entire document."
         )
 
-        response = await client.messages.create(
-            model=settings.primary_llm_model,
-            max_tokens=16000,
-            system=_LLM_ANALYSIS_PROMPT,
-            messages=[{"role": "user", "content": user_message}],
-        )
+        # Extended thinking lets Claude reason deeply before answering
+        # budget_tokens controls how much thinking time Claude gets (8K = thorough)
+        try:
+            response = await client.messages.create(
+                model=settings.primary_llm_model,
+                max_tokens=16000,
+                thinking={"type": "enabled", "budget_tokens": 8000},
+                system=_LLM_ANALYSIS_PROMPT,
+                messages=[{"role": "user", "content": user_message}],
+            )
+        except Exception:
+            # Fallback if extended thinking not supported (e.g. Azure endpoint)
+            response = await client.messages.create(
+                model=settings.primary_llm_model,
+                max_tokens=16000,
+                system=_LLM_ANALYSIS_PROMPT,
+                messages=[{"role": "user", "content": user_message}],
+            )
 
-        raw = response.content[0].text.strip()
+        # Extended thinking returns multiple blocks — find the text block
+        raw = next((b.text for b in response.content if hasattr(b, "text")), "").strip()
 
         # Strip markdown fences if present
         if raw.startswith("```"):
