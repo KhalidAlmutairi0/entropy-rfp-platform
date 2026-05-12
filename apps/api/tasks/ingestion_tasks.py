@@ -1261,78 +1261,158 @@ async def _search_knowledge_base(db, all_text: str, sections: list[dict]) -> lis
 
 
 async def _llm_analyze(all_text: str, knowledge_context: list[dict] | None = None) -> dict:
-    """Send the full document text to Claude for deep forensic analysis.
+    """Three-pass deep analysis using Claude Opus.
 
-    Returns a dict with keys: entities, advantages, disadvantages, rejection_reasons,
-    acceptance_boosters, red_flags, green_flags, capability_signals,
-    summary_ar, summary_en, analyst_confidence.
+    Pass 1 — Requirement extraction: reads every page and extracts all requirements
+    Pass 2 — Risk & flag analysis: identifies every risk, blocker, and compliance issue
+    Pass 3 — Company fit: maps requirements to Entropy capabilities, scores fit
+
+    Each pass is independent and deep. Together they guarantee thorough coverage.
     Falls back to empty result on any error so the pipeline always continues.
     """
-    import asyncio as _asyncio
-    import time as _time
-    _start = _time.time()
-    MIN_DURATION = 180  # minimum 3 minutes
-
     try:
         from core.config import settings
         from services.llm_client import make_anthropic_client
         client = make_anthropic_client()
 
-        # Claude Opus supports ~200K token context — use up to 150K chars for thorough analysis
+        import asyncio as _asyncio
+        import json as _json
+
         text_excerpt = all_text[:150000]
 
-        # Build knowledge context section if available
         knowledge_section = ""
         if knowledge_context:
-            knowledge_section = "\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nRELEVANT KNOWLEDGE BASE MATCHES\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            knowledge_section = "\n\nRELEVANT KNOWLEDGE BASE MATCHES:\n"
             for doc in knowledge_context:
-                knowledge_section += f"\n[{doc['doc_type']}] {doc['title']}"
+                knowledge_section += f"[{doc['doc_type']}] {doc['title']}"
                 if doc.get('outcome'):
                     knowledge_section += f" (Outcome: {doc['outcome']})"
                 if doc.get('excerpt'):
-                    knowledge_section += f"\nExcerpt: {doc['excerpt'][:500]}\n"
-            knowledge_section += "\nUse these matches to inform acceptance_boosters and rejection_reasons.\n"
+                    knowledge_section += f"\n{doc['excerpt'][:400]}\n"
 
-        user_message = (
-            f"Document text:\n\n{text_excerpt}"
-            f"{knowledge_section}"
-            f"\n\nIMPORTANT: Analyze EVERY requirement on EVERY page. Be exhaustive. "
-            f"Focus on each word carefully. Do not stop until you have covered the entire document."
-        )
+        async def _call(prompt: str, max_tokens: int) -> str:
+            r = await _asyncio.wait_for(
+                client.messages.create(
+                    model=settings.primary_llm_model,
+                    max_tokens=max_tokens,
+                    messages=[{"role": "user", "content": prompt}],
+                ),
+                timeout=300,
+            )
+            return next((b.text for b in r.content if hasattr(b, "text")), "").strip()
 
-        import asyncio as _asyncio
-        response = await _asyncio.wait_for(
-            client.messages.create(
-                model=settings.primary_llm_model,
-                max_tokens=32000,
-                system=_LLM_ANALYSIS_PROMPT,
-                messages=[{"role": "user", "content": user_message}],
-            ),
-            timeout=300,  # 5-minute cap — gives Claude time for deep analysis
-        )
+        def _strip_fences(s: str) -> str:
+            if s.startswith("```"):
+                s = "\n".join(s.splitlines()[1:])
+                if s.strip().endswith("```"):
+                    s = s[:s.rfind("```")].strip()
+            return s
 
-        # Extended thinking returns multiple blocks — find the text block
-        raw = next((b.text for b in response.content if hasattr(b, "text")), "").strip()
+        # ── PASS 1: Deep requirement extraction ──────────────────────────────
+        logger.info("LLM Pass 1: extracting all requirements")
+        pass1_prompt = f"""{_LLM_ANALYSIS_PROMPT}
 
-        # Strip markdown fences if present
-        if raw.startswith("```"):
-            raw = "\n".join(raw.splitlines()[1:])
-            if raw.strip().endswith("```"):
-                raw = raw[:raw.rfind("```")].strip()
+Document text:
+{text_excerpt}
 
-        result = json.loads(raw)
-        logger.info("LLM analysis complete",
+PASS 1 TASK: Read the ENTIRE document word by word. Extract EVERY requirement — functional, non-functional, mandatory, technical, compliance, timeline, certification, local content, security, SLA, training, maintenance. Read every table row. Read Arabic sections carefully.
+
+Return ONLY a JSON object with these keys:
+{{
+  "entities": {{...}},
+  "technical_requirements": [...],
+  "mandatory_requirements": [...]
+}}"""
+
+        pass1_raw = _strip_fences(await _call(pass1_prompt, 10000))
+        try:
+            pass1 = _json.loads(pass1_raw)
+        except Exception:
+            pass1 = {}
+        logger.info("LLM Pass 1 complete", requirements=len(pass1.get("technical_requirements", [])))
+
+        # ── PASS 2: Deep risk & flag analysis ────────────────────────────────
+        logger.info("LLM Pass 2: analyzing risks and flags")
+        requirements_summary = _json.dumps(pass1.get("technical_requirements", [])[:30], ensure_ascii=False)
+        pass2_prompt = f"""{_LLM_ANALYSIS_PROMPT}
+
+Document text:
+{text_excerpt}
+
+Requirements extracted in previous pass:
+{requirements_summary}
+
+PASS 2 TASK: Focus entirely on risks, blockers, and opportunities. For every requirement extracted, assess: does it block Entropy? What certifications are missing? What are the compliance risks? What advantages does Entropy have?
+
+Return ONLY a JSON object with these keys:
+{{
+  "red_flags": [...],
+  "green_flags": [...],
+  "advantages": [...],
+  "disadvantages": [...],
+  "rejection_reasons": [...],
+  "acceptance_boosters": [...]
+}}"""
+
+        pass2_raw = _strip_fences(await _call(pass2_prompt, 10000))
+        try:
+            pass2 = _json.loads(pass2_raw)
+        except Exception:
+            pass2 = {}
+        logger.info("LLM Pass 2 complete", red_flags=len(pass2.get("red_flags", [])))
+
+        # ── PASS 3: Company fit mapping ───────────────────────────────────────
+        logger.info("LLM Pass 3: mapping requirements to Entropy capabilities")
+        pass3_prompt = f"""{_LLM_ANALYSIS_PROMPT}
+
+Document text (summary):
+{text_excerpt[:50000]}
+
+{knowledge_section}
+
+All extracted requirements:
+{requirements_summary}
+
+PASS 3 TASK: Map EVERY requirement to Entropy's specific capabilities. For each one: which Entropy capability covers it? FULL, PARTIAL, or NONE? Give honest assessment of overall fit, win probability, and what Entropy must emphasize.
+
+Return ONLY a JSON object with these keys:
+{{
+  "company_fit": {{
+    "overall_fit": "<STRONG|MODERATE|WEAK|NO_FIT>",
+    "fit_explanation_en": "<detailed>",
+    "fit_explanation_ar": "<تفصيلي>",
+    "requirements_coverage": [...],
+    "field_alignment": "<explanation>",
+    "competitive_position": "<STRONG|COMPETITIVE|WEAK>",
+    "win_probability": "<HIGH|MEDIUM|LOW>"
+  }},
+  "capability_signals": [...],
+  "missing_capabilities": [...],
+  "summary_ar": "<5-7 sentences>",
+  "summary_en": "<5-7 sentences>",
+  "analyst_confidence": <0.0-1.0>,
+  "analyst_notes": "<observations>"
+}}"""
+
+        pass3_raw = _strip_fences(await _call(pass3_prompt, 10000))
+        try:
+            pass3 = _json.loads(pass3_raw)
+        except Exception:
+            pass3 = {}
+        logger.info("LLM Pass 3 complete", fit=pass3.get("company_fit", {}).get("overall_fit"))
+
+        # ── Merge all three passes ────────────────────────────────────────────
+        result = {
+            **pass1,
+            **pass2,
+            **pass3,
+        }
+
+        logger.info("LLM 3-pass analysis complete",
                     confidence=result.get("analyst_confidence"),
                     red_flags=len(result.get("red_flags", [])),
-                    green_flags=len(result.get("green_flags", [])))
-
-        # Enforce minimum 3-minute analysis duration
-        elapsed = _time.time() - _start
-        remaining = MIN_DURATION - elapsed
-        if remaining > 0:
-            logger.info("LLM analysis holding for minimum duration", remaining_seconds=round(remaining))
-            await _asyncio.sleep(remaining)
-
+                    green_flags=len(result.get("green_flags", [])),
+                    requirements=len(result.get("technical_requirements", [])))
         return result
 
     except Exception as exc:
