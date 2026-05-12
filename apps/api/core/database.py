@@ -53,7 +53,9 @@ if _is_sqlite:
     _engine_kwargs["connect_args"] = {"check_same_thread": False}
     _engine_kwargs["poolclass"] = StaticPool
 else:
-    _engine_kwargs.update({"pool_pre_ping": True, "pool_size": 10, "max_overflow": 20})
+    # Railway Postgres hobby tier caps at ~25 total connections.
+    # API gets 5 base + 5 overflow = 10 max; leaves room for Celery worker.
+    _engine_kwargs.update({"pool_pre_ping": True, "pool_size": 5, "max_overflow": 5, "pool_timeout": 30, "pool_recycle": 1800})
 
 engine = create_async_engine(settings.database_url, **_engine_kwargs)
 
