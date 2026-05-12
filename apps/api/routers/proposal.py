@@ -277,10 +277,10 @@ async def export_proposal(
 @router.get("/{rfp_id}/proposal/download")
 async def download_proposal(
     rfp_id: uuid.UUID,
+    current_user: Annotated[User, Depends(require_permission(Permission.EXPORT_PROPOSAL))],
+    db: Annotated[AsyncSession, Depends(get_db)],
     format: str = "docx",
     language: str = "ar",
-    current_user: Annotated[User, Depends(require_permission(Permission.EXPORT_PROPOSAL))] = None,
-    db: Annotated[AsyncSession, Depends(get_db)] = None,
 ) -> StreamingResponse:
     """Stream proposal file directly (no MinIO required)."""
     result = await db.execute(
