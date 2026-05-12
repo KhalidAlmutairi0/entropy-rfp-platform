@@ -1299,11 +1299,11 @@ async def _llm_analyze(all_text: str, knowledge_context: list[dict] | None = Non
         response = await _asyncio.wait_for(
             client.messages.create(
                 model=settings.primary_llm_model,
-                max_tokens=12000,
+                max_tokens=16000,
                 system=_LLM_ANALYSIS_PROMPT,
                 messages=[{"role": "user", "content": user_message}],
             ),
-            timeout=180,  # 3-minute hard cap
+            timeout=300,  # 5-minute cap — gives Claude time for deep analysis
         )
 
         # Extended thinking returns multiple blocks — find the text block
