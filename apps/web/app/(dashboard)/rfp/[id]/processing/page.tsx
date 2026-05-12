@@ -62,14 +62,16 @@ export default function ProcessingPage() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const animRef = useRef<ReturnType<typeof setTimeout>[]>([])
 
-  // Animate the visual steps while polling
+  // Show extraction completing quickly (it's fast), then hold AI Analysis
+  // until polling detects actual completion — no fake "done" timers
   const runStepAnimation = () => {
-    const t1 = setTimeout(() => setSteps(prev => prev.map(s => s.id === 'extract' ? { ...s, progress: 50 } : s)), 500)
-    const t2 = setTimeout(() => setSteps(prev => prev.map(s => s.id === 'extract' ? { ...s, progress: 100, status: 'complete' } : s)), 1500)
-    const t3 = setTimeout(() => setSteps(prev => prev.map(s => s.id === 'analyze' ? { ...s, status: 'processing', progress: 0 } : s)), 2000)
-    const t4 = setTimeout(() => setSteps(prev => prev.map(s => s.id === 'analyze' ? { ...s, progress: 60 } : s)), 3500)
-    const t5 = setTimeout(() => setSteps(prev => prev.map(s => s.id === 'match' ? { ...s, status: 'processing', progress: 0 } : s)), 5000)
-    animRef.current = [t1, t2, t3, t4, t5]
+    const t1 = setTimeout(() => setSteps(prev => prev.map(s => s.id === 'extract' ? { ...s, progress: 50 } : s)), 800)
+    const t2 = setTimeout(() => setSteps(prev => prev.map(s => s.id === 'extract' ? { ...s, progress: 100, status: 'complete' } : s)), 3000)
+    const t3 = setTimeout(() => setSteps(prev => prev.map(s => s.id === 'analyze' ? { ...s, status: 'processing', progress: 0 } : s)), 3500)
+    // AI Analysis stays at "processing" indefinitely — completeAnimation() finishes it
+    // Knowledge Matching activates after 20s to reflect the pipeline reaching that step
+    const t4 = setTimeout(() => setSteps(prev => prev.map(s => s.id === 'match' ? { ...s, status: 'processing', progress: 0 } : s)), 20000)
+    animRef.current = [t1, t2, t3, t4]
   }
 
   const completeAnimation = () => {
