@@ -27,7 +27,7 @@ import {
   Loader2,
   CheckCircle2,
 } from 'lucide-react'
-import { rfps } from '@/lib/api'
+import { rfps, getToken } from '@/lib/api'
 import type { ProposalSection } from '@/lib/types'
 
 const exportFormats = [
@@ -53,6 +53,7 @@ export default function ExportPage() {
   const [includePageNumbers, setIncludePageNumbers] = useState(true)
   const [isExporting, setIsExporting] = useState(false)
   const [exportComplete, setExportComplete] = useState(false)
+  const [isDownloading, setIsDownloading] = useState(false)
 
   useEffect(() => {
     rfps.getProposal(rfpId)
@@ -87,6 +88,28 @@ export default function ExportPage() {
     }
   }
 
+  const handleDownload = async () => {
+    setIsDownloading(true)
+    try {
+      const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
+      const res = await fetch(`${BASE}/rfps/${rfpId}/proposal/download?format=${selectedFormat}&language=ar`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      })
+      if (!res.ok) throw new Error('Download failed')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `proposal_${rfpId}.${selectedFormat === 'pdf' ? 'docx' : selectedFormat}`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      alert('Download failed. Please try again.')
+    } finally {
+      setIsDownloading(false)
+    }
+  }
+
   const handleContinue = () => {
     router.push(`/rfp/${rfpId}/deck`)
   }
@@ -105,9 +128,9 @@ export default function ExportPage() {
                 Your proposal has been exported successfully
               </p>
               <div className="flex flex-col gap-3 pt-4">
-                <Button className="w-full" size="lg">
-                  <Download className={`h-4 w-4 ${direction === 'rtl' ? 'ml-2' : 'mr-2'}`} />
-                  Download File
+                <Button className="w-full" size="lg" onClick={handleDownload} disabled={isDownloading}>
+                  {isDownloading ? <Loader2 className={`h-4 w-4 animate-spin ${direction === 'rtl' ? 'ml-2' : 'mr-2'}`} /> : <Download className={`h-4 w-4 ${direction === 'rtl' ? 'ml-2' : 'mr-2'}`} />}
+                  {isDownloading ? 'Downloading...' : 'Download File'}
                 </Button>
                 <Button variant="outline" className="w-full" size="lg">
                   <Mail className={`h-4 w-4 ${direction === 'rtl' ? 'ml-2' : 'mr-2'}`} />

@@ -274,6 +274,36 @@ async def export_proposal(
     return {"task_id": task_id, "status": "queued"}
 
 
+@router.get("/{rfp_id}/proposal/download")
+async def download_proposal(
+    rfp_id: uuid.UUID,
+    format: str = "docx",
+    language: str = "ar",
+    current_user: Annotated[User, Depends(require_permission(Permission.EXPORT_PROPOSAL))] = None,
+    db: Annotated[AsyncSession, Depends(get_db)] = None,
+) -> StreamingResponse:
+    """Stream proposal file directly (no MinIO required)."""
+    result = await db.execute(
+        select(Proposal)
+        .options(selectinload(Proposal.sections))
+        .where(Proposal.rfp_id == rfp_id, Proposal.is_deleted == False)  # noqa: E712
+    )
+    proposal = result.scalar_one_or_none()
+    if not proposal:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proposal not found")
+
+    from tasks.export_tasks import _generate_docx
+    config = {"include_cover": True, "include_toc": True, "include_section_numbers": True}
+    docx_bytes = await _generate_docx(proposal, config, language)
+
+    filename = f"proposal_{rfp_id}.docx"
+    return StreamingResponse(
+        iter([docx_bytes]),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.patch("/{rfp_id}/proposal/outcome")
 async def update_outcome(
     rfp_id: uuid.UUID,
