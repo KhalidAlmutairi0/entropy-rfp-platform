@@ -991,17 +991,7 @@ async def _detect_flags(sections: list[dict], entities: dict) -> dict:
             "section": "Commercial Terms",
         })
 
-    # 4. Security clearance required
-    if entities.get("requires_security_clearance"):
-        red_flags.append({
-            "code": "SECURITY_CLEARANCE_REQUIRED",
-            "severity": "MAJOR",
-            "title_en": "Security clearance required",
-            "title_ar": "يتطلب تصريحاً أمنياً",
-            "description_en": "The RFP requires personnel security clearance. Verify Entropy's team eligibility before bidding.",
-            "page": _section_page(sections, "eligibility", "الأهلية", "الشروط", "security", "أمن"),
-            "section": "Eligibility",
-        })
+    # 4. Security clearance — informational note only, not a risk flag
 
     # 5. Very short timeline (< 3 months for complex delivery)
     duration = entities.get("duration_months", 0)
