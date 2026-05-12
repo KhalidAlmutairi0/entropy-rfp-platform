@@ -1,8 +1,8 @@
 #!/bin/sh
 set -e
 
-echo "Running database migrations..."
-alembic upgrade head
+echo "Setting up database..."
+python create_tables.py
 
 echo "Running database seed..."
 python seed.py
