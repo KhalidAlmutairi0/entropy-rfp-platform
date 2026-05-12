@@ -1492,6 +1492,97 @@ Return ONLY a valid JSON object — no markdown, no backticks, no explanation ou
 Red flag codes: MANDATORY_CERT_NOT_HELD, DATA_RESIDENCY_OUTSIDE_KSA, LOCAL_CONTENT_HIGH,
 SECURITY_CLEARANCE_REQUIRED, UNREALISTIC_TIMELINE, PDPL_CONFLICT, CONFLICT_OF_INTEREST,
 BUDGET_TOO_SMALL, SCOPE_MISMATCH, HIGH_COMPETITION_RISK, GPU_INFRA_REQUIRED, SOLE_SOURCE_SPEC.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+BD MANAGER INSTITUTIONAL MEMORY — LEARNED FROM 49 REAL ENTROPY RFPs
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This section encodes the decision patterns derived from 25 accepted and 24 rejected Entropy bids.
+Apply these rules BEFORE scoring — they override the rubric when triggered.
+
+── ACCEPTED PROJECT TYPES (high win probability) ──
+• AI Strategy & Roadmap Development
+• Data Analytics & Business Intelligence Platform (build + advisory)
+• Data Management Office (DMO) Setup & Operations
+• Data Governance & Data Management Enhancement
+• Digital Transformation Strategy (IT Consulting with AI/data component)
+• Applied AI Development with advisory overlay (AI assistant, smart inspector)
+• AI Strategy Operationalization & Program Support
+• AI Office Establishment (مكتب الذكاء الاصطناعي)
+• Market/Sector Data Analytics (capital markets, environment, culture)
+• Environmental Data Analytics & Modeling
+• Document Management & Digitization (when paired with data layer)
+• RFI / Early-Stage AI Adoption Studies (relationship building)
+
+── REJECTED PROJECT TYPES (NO-GO regardless of keywords) ──
+• AI Factory (GPU/compute infrastructure procurement) — looks like AI but is hardware
+• Data Center Migration / Backup DC Construction
+• Video Analytics for airports or surveillance (specialist CV engineering required)
+• Healthcare AI / Medical Consultation Systems
+• Comprehensive Field Surveys (physical data collection across provinces)
+• Traffic Monitoring / Smart Roads / IoT Sensor Systems
+• Facilities Management / Cleaning contracts with thin AI overlay
+• Software Supply/Procurement (توريد) — Entropy is not a product reseller
+• Tourism AI Use Cases (consistently rejected — sector misalignment)
+• Military/Security Forces BI (security clearance + sensitive ops)
+• Agriculture Niche Data Management
+• Pure NDMO Compliance documentation (no build deliverable, low revenue)
+• Insurance Product Engineering (eligibility engines, actuarial systems)
+
+── INSTANT GO KEYWORDS (Arabic + English) ──
+Arabic: تحليل البيانات، ذكاء الأعمال، ذكاء اصطناعي، استراتيجية البيانات، مكتب البيانات،
+        حوكمة البيانات، دعم اتخاذ القرار، تحول رقمي، مكتب الذكاء الاصطناعي،
+        تفعيل مكتب البيانات، نمذجة البيانات، منصة تكامل
+English: AI Strategy, Data Governance, DMO, BI platform, Decision Support, Data Analytics,
+         AI roadmap, data office, data management, digital transformation strategy
+
+── INSTANT NO-GO KEYWORDS ──
+Arabic: نقل مركز البيانات، AI Factory، نظافة، مسح شامل، توريد (supply contract)،
+        مستشفيات/مستشفى، بنية تحتية (as primary scope)، شبكات وأمن المعلومات،
+        تصوير المراقبة بالفيديو، سياحة (tourism as primary vertical)
+English: AI Factory (GPU), data center migration, field survey, supply/procurement RFQ,
+         hospitals/clinical, IoT sensor monitoring, video surveillance analytics
+
+── BD MANAGER RULES (apply to every RFP) ──
+Rule 1 — CONTRACT TYPE: Prefer Consulting Services and IT Consulting. Reject: supply/توريد,
+  pure O&M of physical infra, RFQ commodity bids.
+
+Rule 2 — INFRASTRUCTURE VETO: Primary scope = hardware/infra → NO-GO. Analytics overlay
+  on infrastructure projects does NOT override this veto.
+
+Rule 3 — SECTOR BLACKLIST (NO-GO sectors): hospitals/clinical, military/security forces,
+  field physical surveys, FM/cleaning operations, agriculture niche, traffic/IoT sensors,
+  tourism (unless very senior advisory). Insurance product engineering.
+
+Rule 4 — CLIENT PROFILE TIERS:
+  Tier 1 (Pursue aggressively): Government ministries, SDAIA/NDMO ecosystem, Vision 2030
+    programs, Giga-projects (Diriyah, NEOM, Qiddiya, ROSHN), Regulatory authorities (CMA, SIIPA).
+  Tier 2 (Pursue if fit): Regional Emirate/municipality offices, National corporations.
+  Tier 3 (Caution): Insurance companies, Semi-gov entities, Smaller operational units.
+  NO-GO: Hospitals, Security forces, Private tourism operators.
+
+Rule 5 — EXISTING CLIENT OVERRIDE: Active Entropy client → bid even on borderline scope.
+  Ministry of Culture (3 accepted bids), Ministry of Interior, RCU, Monsha'at = always pursue.
+
+Rule 6 — SCOPE CLARITY REQUIREMENT: Vague scope like "enhancing work using AI" without
+  specific phases/deliverables/KPIs = HIGH RISK. Flag as SCOPE_MISMATCH MINOR and reduce D7.
+
+Rule 7 — DUAL SIGNAL RULE: Highest win probability when RFP has BOTH data governance AND
+  AI/analytics requirement simultaneously (e.g., DMO setup + AI platform = strong GO).
+
+Rule 8 — PROCUREMENT CONTRACT WARNING: "توريد" or "supply of tools/licenses" in contract
+  type = Entropy is not a product reseller → NO-GO or REVIEW only if advisory component >= 60%.
+
+Rule 9 — RFI RULE: RFIs (طلب معلومات) are always worth responding to for relationship-building,
+  even with no immediate revenue. Mark as CONDITIONAL GO.
+
+── NUANCED CASES TO REMEMBER ──
+• Tourism Authority AI use cases: looks like GO (gov + AI) but consistently REJECTED → tourism sector misalignment
+• CNHI eligibility engine: has "data analytics" language but is insurance product engineering → REJECTED
+• Environmental data modeling: unusual sector but accepted → core deliverable was data analytics consulting
+• Control Tower (Diriyah): non-core scope but ACCEPTED → existing client relationship override
+• TVTC data strategy: similar to MOI DMO but REJECTED → wrong agency (training institute, not ministry)
+• Document digitization/archiving: adjacent scope but ACCEPTED → paired with data management layer
 """
 
 
