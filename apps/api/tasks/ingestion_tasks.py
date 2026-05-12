@@ -1268,6 +1268,11 @@ async def _llm_analyze(all_text: str, knowledge_context: list[dict] | None = Non
     summary_ar, summary_en, analyst_confidence.
     Falls back to empty result on any error so the pipeline always continues.
     """
+    import asyncio as _asyncio
+    import time as _time
+    _start = _time.time()
+    MIN_DURATION = 180  # minimum 3 minutes
+
     try:
         from core.config import settings
         from services.llm_client import make_anthropic_client
@@ -1320,6 +1325,14 @@ async def _llm_analyze(all_text: str, knowledge_context: list[dict] | None = Non
                     confidence=result.get("analyst_confidence"),
                     red_flags=len(result.get("red_flags", [])),
                     green_flags=len(result.get("green_flags", [])))
+
+        # Enforce minimum 3-minute analysis duration
+        elapsed = _time.time() - _start
+        remaining = MIN_DURATION - elapsed
+        if remaining > 0:
+            logger.info("LLM analysis holding for minimum duration", remaining_seconds=round(remaining))
+            await _asyncio.sleep(remaining)
+
         return result
 
     except Exception as exc:
