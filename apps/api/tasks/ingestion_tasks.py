@@ -1295,24 +1295,16 @@ async def _llm_analyze(all_text: str, knowledge_context: list[dict] | None = Non
             f"Focus on each word carefully. Do not stop until you have covered the entire document."
         )
 
-        # Extended thinking lets Claude reason deeply before answering
-        # budget_tokens controls how much thinking time Claude gets (8K = thorough)
-        try:
-            response = await client.messages.create(
+        import asyncio as _asyncio
+        response = await _asyncio.wait_for(
+            client.messages.create(
                 model=settings.primary_llm_model,
-                max_tokens=16000,
-                thinking={"type": "enabled", "budget_tokens": 8000},
+                max_tokens=12000,
                 system=_LLM_ANALYSIS_PROMPT,
                 messages=[{"role": "user", "content": user_message}],
-            )
-        except Exception:
-            # Fallback if extended thinking not supported (e.g. Azure endpoint)
-            response = await client.messages.create(
-                model=settings.primary_llm_model,
-                max_tokens=16000,
-                system=_LLM_ANALYSIS_PROMPT,
-                messages=[{"role": "user", "content": user_message}],
-            )
+            ),
+            timeout=180,  # 3-minute hard cap
+        )
 
         # Extended thinking returns multiple blocks — find the text block
         raw = next((b.text for b in response.content if hasattr(b, "text")), "").strip()
