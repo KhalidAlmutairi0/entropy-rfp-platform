@@ -97,6 +97,25 @@ async def seed():
             await db.commit()
             print("Admin user created: admin@entropy.sa / Admin@1234")
 
+        # ── BD user ─────────────────────────────────────────────────────────────
+        existing_bd = await db.execute(select(User).where(User.email == "ahmad@entropy.sa"))
+        if existing_bd.scalar_one_or_none():
+            print("BD user already exists.")
+        else:
+            bd = User(
+                email="ahmad@entropy.sa",
+                name="Ahmad Al-Harbi",
+                hashed_password=hash_password("Ahmad@2024"),
+                role="BD_PERSON",
+                is_active=True,
+                mfa_enabled=False,
+                preferred_language="ar",
+                preferred_timezone="Asia/Riyadh",
+            )
+            db.add(bd)
+            await db.commit()
+            print("BD user created: ahmad@entropy.sa / Ahmad@2024")
+
         # ── Proposal templates ──────────────────────────────────────────────────
         existing_templates = await db.execute(select(Template))
         if existing_templates.scalars().first():
