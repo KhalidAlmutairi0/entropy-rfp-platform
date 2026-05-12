@@ -1299,7 +1299,7 @@ async def _llm_analyze(all_text: str, knowledge_context: list[dict] | None = Non
         response = await _asyncio.wait_for(
             client.messages.create(
                 model=settings.primary_llm_model,
-                max_tokens=16000,
+                max_tokens=32000,
                 system=_LLM_ANALYSIS_PROMPT,
                 messages=[{"role": "user", "content": user_message}],
             ),
