@@ -4,10 +4,18 @@ Run from apps/api/: python seed.py
 """
 
 import asyncio
-from core.database import AsyncSessionLocal, engine, Base
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.pool import NullPool
+from core.config import settings
+from core.database import Base
 from models.user import User
 from models.template import Template, TemplateSection
 import bcrypt as _bcrypt
+
+# Use NullPool for this one-shot seed script so each connection is released
+# immediately — prevents exhausting Railway Postgres's connection limit at startup.
+engine = create_async_engine(settings.database_url, poolclass=NullPool)
+AsyncSessionLocal = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
 
 def hash_password(password: str) -> str:

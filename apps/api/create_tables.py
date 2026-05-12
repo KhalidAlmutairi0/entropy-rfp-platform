@@ -5,7 +5,13 @@ import sys
 
 async def main():
     # Import all models so Base.metadata knows about them
-    from core.database import engine, Base
+    # Use NullPool for this one-shot script so connections are released immediately
+    # and don't eat into Railway Postgres's limited connection count.
+    from core.config import settings
+    from core.database import Base
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+    engine = create_async_engine(settings.database_url, poolclass=NullPool)
     import models.user
     import models.rfp
     import models.rfp_file
